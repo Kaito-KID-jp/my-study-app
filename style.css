@@ -1,5 +1,5 @@
 /* ==================================================================== */
-/* AI問題生成学習アプリ - スタイルシート V2                            */
+/* AI問題生成学習アプリ - スタイルシート V2.1 (変更反映版)               */
 /* ==================================================================== */
 
 /* --- Variables & Base --- */
@@ -8,10 +8,12 @@
     --primary-color: #3498db;  /* Vivid Blue */
     --primary-dark: #2980b9;   /* Darker Blue */
     --secondary-color: #95a5a6; /* Calm Gray */
+    --secondary-dark: #7f8c8d;  /* Darker Gray */
     --accent-color: #f1c40f;  /* Accent Yellow */
     --success-color: #2ecc71;  /* Success Green */
     --success-dark: #27ae60;  /* Darker Green */
     --warning-color: #e67e22;  /* Warning Orange */
+    --warning-dark: #d35400;   /* Darker Orange */
     --danger-color: #e74c3c;   /* Danger Red */
     --danger-dark: #c0392b;   /* Darker Red */
     --info-color: #3498db;    /* Info Blue (same as primary) */
@@ -23,6 +25,15 @@
     --shadow-color: rgba(44, 62, 80, 0.15); /* Slightly Darker Shadow */
     --disabled-bg: #bdc3c7;  /* Disabled background */
     --disabled-text: #7f8c8d; /* Disabled text */
+
+    /* Evaluation Button Colors (based on secondary) */
+    --eval-difficult-bg: #f2d7d5; /* Light red */
+    --eval-difficult-text: #a93226; /* Darker red */
+    --eval-normal-bg: #fdebd0; /* Light orange */
+    --eval-normal-text: #b9770e; /* Darker orange */
+    --eval-easy-bg: #d4efdf; /* Light green */
+    --eval-easy-text: #1e8449; /* Darker green */
+
 
     /* Typography */
     --font-family: 'Noto Sans JP', 'Helvetica Neue', Arial, sans-serif; /* Japanese font priority */
@@ -58,6 +69,8 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 100vh;
+    margin: 0; /* Ensure no default body margin */
+    overflow-x: hidden; /* Prevent horizontal scroll */
 }
 
 /* --- Accessibility --- */
@@ -104,6 +117,7 @@ body {
     padding: 0;
     color: var(--white-bg);
     text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+    cursor: pointer; /* Added for home link */
 }
 .app-header h1 i { margin-right: 12px; }
 .app-nav .nav-button {
@@ -136,7 +150,6 @@ body {
     color: var(--white-bg);
 }
 .app-nav .nav-button.active {
-    /* background-color: rgba(255, 255, 255, 0.15); */
     color: var(--white-bg);
     font-weight: bold;
 }
@@ -210,7 +223,9 @@ body {
     border-bottom: 1px solid var(--border-color);
 }
 .card-header i { margin-right: 10px; }
-.card-content 
+.card-content { /* Basic content class, can be extended */
+    /* No default styles needed here currently */
+}
 
 /* --- Buttons & Inputs --- */
 .button {
@@ -218,13 +233,15 @@ body {
     padding: 12px 24px;
     margin: 6px;
     cursor: pointer;
-    border: none;
+    border: 1px solid transparent; /* Add border for consistency */
     border-radius: var(--border-radius);
     font-size: 1em;
     font-weight: 500;
     text-align: center;
     text-decoration: none;
     transition: background-color var(--transition-speed) var(--transition-timing),
+                color var(--transition-speed) var(--transition-timing), /* Added color transition */
+                border-color var(--transition-speed) var(--transition-timing), /* Added border transition */
                 transform 0.1s ease-out,
                 box-shadow var(--transition-speed) var(--transition-timing);
     box-shadow: var(--box-shadow-active); /* Softer initial shadow */
@@ -232,14 +249,16 @@ body {
     overflow: hidden;
     vertical-align: middle;
     user-select: none;
+    line-height: 1.4; /* Adjusted line height for consistency */
 }
-.button i { margin-right: 8px; }
+.button i { margin-right: 8px; vertical-align: middle; } /* Ensure icon alignment */
 .button:disabled,
 .button[disabled] { /* Style disabled buttons */
     cursor: not-allowed;
     opacity: 0.6;
     background-color: var(--disabled-bg);
     color: var(--disabled-text);
+    border-color: var(--disabled-bg); /* Match border */
     box-shadow: none;
     transform: none;
 }
@@ -252,16 +271,17 @@ body {
     box-shadow: var(--box-shadow-active);
 }
 /* Button Color Variants */
-.button.primary { background-color: var(--primary-color); color: white; }
-.button.primary:hover:not(:disabled) { background-color: var(--primary-dark); }
-.button.secondary { background-color: var(--secondary-color); color: white; }
-.button.secondary:hover:not(:disabled) { background-color: #7f8c8d; }
-.button.success { background-color: var(--success-color); color: white; }
-.button.success:hover:not(:disabled) { background-color: var(--success-dark); }
-.button.danger { background-color: var(--danger-color); color: white; }
-.button.danger:hover:not(:disabled) { background-color: var(--danger-dark); }
-.button.warning { background-color: var(--warning-color); color: var(--white-bg); } /* Use white text */
-.button.warning:hover:not(:disabled) { background-color: #d35400; }
+.button.primary { background-color: var(--primary-color); color: white; border-color: var(--primary-color); }
+.button.primary:hover:not(:disabled) { background-color: var(--primary-dark); border-color: var(--primary-dark); }
+.button.secondary { background-color: var(--secondary-color); color: white; border-color: var(--secondary-color); }
+.button.secondary:hover:not(:disabled) { background-color: var(--secondary-dark); border-color: var(--secondary-dark); }
+.button.success { background-color: var(--success-color); color: white; border-color: var(--success-color); }
+.button.success:hover:not(:disabled) { background-color: var(--success-dark); border-color: var(--success-dark); }
+.button.danger { background-color: var(--danger-color); color: white; border-color: var(--danger-color); }
+.button.danger:hover:not(:disabled) { background-color: var(--danger-dark); border-color: var(--danger-dark); }
+.button.warning { background-color: var(--warning-color); color: var(--white-bg); border-color: var(--warning-color); }
+.button.warning:hover:not(:disabled) { background-color: var(--warning-dark); border-color: var(--warning-dark); }
+
 /* Button Size Variants */
 .button.large { padding: 14px 28px; font-size: 1.1em; }
 .button.small { padding: 6px 12px; font-size: 0.9em; }
@@ -484,8 +504,6 @@ fieldset { /* Basic fieldset styling */
     border-radius: var(--border-radius);
     background-color: var(--white-bg);
     transition: background-color var(--transition-speed), border-color var(--transition-speed), box-shadow var(--transition-speed);
-    /* Removed padding here, add to label instead */
-    /* Padding removed from here, added to label for better click area */
 }
 /* Ensure label takes up the clickable area within the border */
 .filter-item label {
@@ -641,12 +659,12 @@ fieldset { /* Basic fieldset styling */
     transition: background-color 0.3s, color 0.3s;
 }
 #feedback-message.correct {
-    background-color: #d1fadf;
-    color: #137a3b;
+    background-color: var(--eval-easy-bg); /* Reuse eval color */
+    color: var(--eval-easy-text);
 }
 #feedback-message.incorrect {
-    background-color: #fce8e6;
-    color: #c5221f;
+    background-color: var(--eval-difficult-bg); /* Reuse eval color */
+    color: var(--eval-difficult-text);
 }
 .evaluation-panel {
     text-align: center;
@@ -665,17 +683,51 @@ fieldset { /* Basic fieldset styling */
     gap: 15px;
     flex-wrap: wrap;
 }
-.eval-button { min-width: 100px; }
-.eval-button.difficult { background-color: var(--danger-color); color: white; }
-.eval-button.normal { background-color: var(--warning-color); color: white; }
-.eval-button.easy { background-color: var(--success-color); color: white; }
-.eval-button:hover:not(:disabled) {
-    filter: brightness(110%);
-}
-.eval-button:disabled {
-    filter: grayscale(50%);
+/* Evaluation Button Styling */
+.eval-button {
+    min-width: 120px;
+    padding: 12px 20px;
+    font-weight: bold;
+    font-size: 1.1em;
+    margin: 0 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    transition: all 0.2s ease;
 }
 
+.eval-button.difficult {
+    background-color: var(--eval-difficult-bg);
+    color: var(--eval-difficult-text);
+    border: 2px solid var(--eval-difficult-text);
+}
+
+.eval-button.normal {
+    background-color: var(--eval-normal-bg);
+    color: var(--eval-normal-text);
+    border: 2px solid var(--eval-normal-text);
+}
+
+.eval-button.easy {
+    background-color: var(--eval-easy-bg);
+    color: var(--eval-easy-text);
+    border: 2px solid var(--eval-easy-text);
+}
+
+.eval-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.eval-button:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 2px 3px rgba(0,0,0,0.1);
+}
+/* Icon colors */
+.eval-button.difficult i { color: var(--danger-color); }
+.eval-button.normal i { color: var(--warning-color); }
+.eval-button.easy i { color: var(--success-color); }
+.eval-button:hover:not(:disabled) i { /* Ensure icon color changes on hover too if needed */
+    /* color: white; */ /* Or match the button text color */
+}
 
 #retry-button { margin-top: 15px; }
 
@@ -689,10 +741,42 @@ fieldset { /* Basic fieldset styling */
 .completion-panel strong { font-weight: bold; color: var(--dark-text); } /* Style result numbers */
 .completion-panel button { margin-top: 20px; }
 .quit-button {
-    position: absolute;
-    top: 20px;
+    position: fixed;
+    bottom: 20px;
     right: 20px;
-    z-index: 10;
+    z-index: 100;
+    padding: 12px 24px;
+    font-size: 1.1em;
+    font-weight: bold;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    border: 2px solid var(--danger-dark);
+}
+
+.quit-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+
+.quit-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+@media (max-width: 768px) {
+    .quit-button {
+        bottom: 15px;
+        right: 15px;
+        padding: 10px 20px;
+    }
+}
+
+@media (max-width: 480px) {
+    .quit-button {
+        bottom: 10px;
+        right: 10px;
+        padding: 8px 16px;
+        font-size: 1em;
+    }
 }
 
 /* --- Dashboard Screen Specific Styles --- */
@@ -784,11 +868,12 @@ fieldset { /* Basic fieldset styling */
 }
 .dashboard-analysis-controls .search-control { /* Allow search to grow */
     flex-grow: 1;
+    min-width: 150px; /* Prevent excessive shrinking */
     max-width: 400px;
+    display: flex; /* Ensure input and buttons are inline */
 }
 .dashboard-analysis-controls .search-control input[type="search"] {
-    width: auto; /* Let it grow with flex */
-    flex-grow: 1;
+    flex-grow: 1; /* Let input field take available space */
     max-width: none; /* Override max-width for search */
 }
 .dashboard-analysis-controls .search-control button {
@@ -804,6 +889,7 @@ fieldset { /* Basic fieldset styling */
 /* View Mode Buttons (List/Chart) */
 .dashboard-analysis-controls .view-mode-control {
     margin-left: auto; /* Push view mode buttons to the right */
+    display: flex; /* Ensure buttons are side-by-side */
 }
 .dashboard-analysis-controls .view-mode-control button {
     margin: 0;
@@ -817,17 +903,19 @@ fieldset { /* Basic fieldset styling */
 .dashboard-analysis-controls .view-mode-control button:last-of-type {
     border-top-right-radius: var(--border-radius);
     border-bottom-right-radius: var(--border-radius);
-    margin-left: -1px;
+    margin-left: -1px; /* Overlap borders */
 }
 .dashboard-analysis-controls .view-mode-control button.active {
     background-color: var(--primary-color);
     color: white;
+    border-color: var(--primary-color);
     z-index: 1;
     font-weight: bold;
 }
 .dashboard-analysis-controls .view-mode-control button:not(.active) {
     background-color: var(--light-bg);
     color: var(--dark-text);
+    border-color: var(--border-color);
     opacity: 0.8;
 }
 .dashboard-analysis-controls .view-mode-control button:hover:not(.active) {
@@ -856,6 +944,7 @@ fieldset { /* Basic fieldset styling */
     border-bottom: 1px solid #eee;
     cursor: pointer;
     transition: background-color var(--transition-speed);
+    gap: 10px; /* Added gap */
 }
 .question-accuracy-item:last-child { border-bottom: none; }
 .question-accuracy-item:hover,
@@ -865,7 +954,7 @@ fieldset { /* Basic fieldset styling */
 }
 .question-accuracy-item .question-text-preview {
     flex-grow: 1;
-    margin-right: 15px;
+    margin-right: 5px; /* Reduced margin */
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -908,12 +997,14 @@ fieldset { /* Basic fieldset styling */
     margin-top: 15px;
     border-top: 1px solid var(--border-color);
     gap: 10px; /* Gap between buttons and info */
+    flex-wrap: wrap; /* Allow wrapping */
 }
 .pagination-controls button { margin: 0; }
 .pagination-controls .page-info {
     font-size: 0.95em;
     color: var(--dark-text);
     white-space: nowrap;
+    order: 0; /* Keep info in the middle by default */
 }
 /* Question Detail View */
 #question-detail-view {
@@ -953,6 +1044,7 @@ fieldset { /* Basic fieldset styling */
     justify-content: space-between;
     gap: 10px;
     padding: 3px 0; /* Add slight vertical padding */
+    flex-wrap: wrap; /* Allow wrapping */
 }
 #question-detail-view ul li span:first-child { /* Timestamp */
     flex-shrink: 0; /* Prevent timestamp shrinking */
@@ -973,6 +1065,7 @@ fieldset { /* Basic fieldset styling */
     font-style: italic;
     font-size: 0.9em;
     color: var(--secondary-color); /* Distinct color for eval */
+    margin-left: 4px; /* Space before eval */
 }
 #question-detail-view button#close-detail-view { margin-top: 10px; }
 
@@ -1136,18 +1229,20 @@ pre.code-block strong { /* Highlight placeholders in prompt */
     display: flex;
     align-items: center;
     min-width: 280px;
-    max-width: 90%;
+    width: auto; /* Let content determine width */
+    max-width: 90%; /* Limit max width */
     max-width: 600px;
 }
 #global-notification.show {
     opacity: 1;
     bottom: 30px;
 }
-#notification-icon { margin-right: 12px; font-size: 1.2em; }
+#notification-icon { margin-right: 12px; font-size: 1.2em; flex-shrink: 0; }
+#notification-message { flex-grow: 1; } /* Allow message to take space */
 /* Notification Type Variants */
 #global-notification.success { background-color: var(--success-color); }
 #global-notification.info { background-color: var(--info-color); }
-#global-notification.warning { background-color: var(--warning-color); color: white; } /* Darker warning for white text */
+#global-notification.warning { background-color: var(--warning-color); color: white; }
 #global-notification.error { background-color: var(--danger-color); }
 
 #notification-close-button {
@@ -1163,6 +1258,7 @@ pre.code-block strong { /* Highlight placeholders in prompt */
     line-height: 1;
     cursor: pointer;
     padding: 5px;
+    flex-shrink: 0;
 }
 #notification-close-button:hover { opacity: 1; }
 
@@ -1220,7 +1316,8 @@ pre.code-block strong { /* Highlight placeholders in prompt */
 @media (max-width: 992px) { /* Tablet */
     html { font-size: 15px; } /* Slightly smaller base font */
     #app-container { padding: 20px; }
-    .dashboard-analysis-controls .view-mode-control { margin-left: 0; }
+    .dashboard-analysis-controls .view-mode-control { margin-left: 0; order: 1; /* Move to next line on wrap */}
+    .dashboard-analysis-controls .control-group { flex-basis: auto; /* Allow groups to wrap naturally */ }
     #settings-screen .setting-item label:not(.checkbox-label) { flex-basis: 200px; text-align: left;}
     #settings-screen .setting-item .note { text-align: left; margin-left: 0;}
 }
@@ -1228,9 +1325,9 @@ pre.code-block strong { /* Highlight placeholders in prompt */
 @media (max-width: 768px) { /* Small Tablet / Large Phone */
     html { font-size: 14px; } /* Further reduce base font */
     .app-header { flex-direction: column; padding: 15px; text-align: center;}
-    .app-header h1 { margin-bottom: 10px; }
-    .app-nav { margin-top: 10px; display: flex; flex-wrap: wrap; justify-content: center; }
-    .app-nav .nav-button { margin: 5px; }
+    .app-header h1 { margin-bottom: 10px; font-size: 1.6em; }
+    .app-nav { margin-top: 10px; display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+    .app-nav .nav-button { margin: 0; /* Remove margin handled by gap */ }
     #app-container { padding: 15px; margin: 15px auto;}
     .card { padding: 15px 20px; }
     .screen-title { font-size: 1.6em; margin-bottom: 20px; }
@@ -1255,20 +1352,27 @@ pre.code-block strong { /* Highlight placeholders in prompt */
     #options-buttons-container button.option-button { font-size: 1em; }
     .quit-button { top: 15px; right: 15px; padding: 6px 10px; font-size: 0.9em;}
     #question-text { font-size: 1.3em; }
+    .eval-buttons-container { gap: 10px; } /* Reduce gap */
+    .eval-button { min-width: 85px; /* Adjust min-width */ }
 
     /* Dashboard */
     #dashboard-screen .dashboard-controls { flex-direction: column; align-items: stretch; gap: 10px; }
     #dashboard-screen #dashboard-deck-select { min-width: 0; }
     #dashboard-question-analysis .dashboard-analysis-controls { flex-direction: column; align-items: stretch; gap: 12px; }
     .dashboard-analysis-controls .control-group { justify-content: space-between; }
+    .dashboard-analysis-controls select,
+    .dashboard-analysis-controls input[type="search"] { max-width: none; width: 100%; } /* Full width */
     .dashboard-analysis-controls .search-control { flex-direction: row; align-items: center; gap: 5px; max-width: none; }
     .dashboard-analysis-controls .search-control input[type="search"] { width: auto; flex-grow: 1; max-width: none; }
     .dashboard-analysis-controls .search-control button { margin: 0; flex-shrink: 0;}
-    .dashboard-analysis-controls .view-mode-control { align-self: center; margin-left: 0; }
+    .dashboard-analysis-controls .view-mode-control { align-self: center; margin-left: 0; order: 0; /* Reset order */}
     #dashboard-overview .dashboard-stats-grid { grid-template-columns: 1fr; }
     #dashboard-trends .chart-container, #dashboard-question-analysis .chart-container { height: 280px; }
     #question-accuracy-list { max-height: 350px; }
-    .question-accuracy-item .score-container { min-width: 90px; }
+    .question-accuracy-item { padding: 10px 12px; } /* Adjust padding */
+    .question-accuracy-item .score-container { min-width: auto; /* Remove min-width */ }
+    .pagination-controls .page-info { order: -1; flex-basis: 100%; text-align: center; margin-bottom: 5px; } /* Info on top */
+
 
     /* Settings */
     #settings-screen .setting-item { flex-direction: column; align-items: flex-start; }
@@ -1279,9 +1383,10 @@ pre.code-block strong { /* Highlight placeholders in prompt */
 }
 
 @media (max-width: 480px) { /* Phone */
+    /* html { font-size: 13px; } Base font adjusted in 768px */
     body { font-size: 14px; }
     .app-header h1 { font-size: 1.4em; }
-    .app-nav .nav-button { padding: 8px 12px; font-size: 0.9em; margin: 3px; }
+    .app-nav .nav-button { padding: 8px 10px; font-size: 0.85em; margin: 3px; }
     .button { padding: 10px 18px; font-size: 0.95em; }
     .button.large { padding: 12px 24px; font-size: 1em; }
     .button.small { padding: 6px 10px; font-size: 0.85em; }
@@ -1291,7 +1396,8 @@ pre.code-block strong { /* Highlight placeholders in prompt */
     /* Home Screen */
     #deck-list li { padding: 10px 12px; }
     #deck-list li > div:first-child { margin-right: 0; }
-    #deck-list .deck-actions button { font-size: 0.8em; padding: 4px 8px;}
+    #deck-list .deck-actions { display: flex; justify-content: flex-end; gap: 5px; }
+    #deck-list .deck-actions button { font-size: 0.8em; padding: 4px 8px; margin-left: 0; }
     #current-deck-info p { font-size: 0.95em; margin: 6px 0; }
     #current-deck-info .current-deck-header button { font-size: 0.85em; padding: 5px 10px;}
     .filter-item label { padding: 6px 10px; font-size: 0.95em; }
@@ -1301,9 +1407,9 @@ pre.code-block strong { /* Highlight placeholders in prompt */
     #question-text { font-size: 1.2em; }
     #options-buttons-container button.option-button { padding: 10px 15px; }
     #feedback-message { font-size: 1.1em; padding: 10px 15px; gap: 6px;}
-    .eval-button { min-width: 70px; padding: 8px 14px; font-size: 0.9em;}
+    .eval-button { min-width: 75px; padding: 8px 12px; font-size: 0.85em;}
     .card-label { font-size: 0.85em; }
-    .quit-button { top: 10px; right: 10px; }
+    .quit-button { top: 10px; right: 10px; padding: 5px 8px; }
 
     /* Dashboard */
     #dashboard-screen .dashboard-controls { padding: 10px 15px; }
@@ -1313,19 +1419,20 @@ pre.code-block strong { /* Highlight placeholders in prompt */
     #dashboard-question-analysis .chart-container { height: 250px; }
     .dashboard-analysis-controls select,
     .dashboard-analysis-controls input[type="search"] { font-size: 0.9em; }
-    .question-accuracy-item { padding: 10px 12px; flex-direction: column; align-items: flex-start; }
+    .question-accuracy-item { padding: 10px 12px; flex-direction: column; align-items: flex-start; gap: 5px; }
     .question-accuracy-item .score-container {
         margin-top: 5px;
         width: 100%;
         flex-direction: row;
         justify-content: flex-end;
         align-items: baseline;
+        gap: 5px;
     }
-    .question-accuracy-item .accuracy-score { min-width: auto; margin-right: 5px;}
+    .question-accuracy-item .accuracy-score { min-width: auto; margin-right: 0;}
     .question-accuracy-item .answer-counts { margin-top: 0; }
-    .pagination-controls { padding: 10px 0; flex-wrap: wrap; justify-content: center; gap: 5px;}
+    .pagination-controls { padding: 10px 0; gap: 5px;}
     .pagination-controls button { margin: 0; padding: 5px 10px; font-size: 0.85em; }
-    .pagination-controls .page-info { font-size: 0.9em; margin: 0 5px; flex-basis: 100%; text-align: center;}
+    .pagination-controls .page-info { font-size: 0.9em; margin: 0 5px; }
     #question-detail-view h4 { font-size: 1.1em; }
     #question-detail-view p { font-size: 0.95em;}
     #question-detail-view ul li { font-size: 0.85em; }
