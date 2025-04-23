@@ -120,44 +120,50 @@ body {
     cursor: pointer; /* Added for home link */
 }
 .app-header h1 i { margin-right: 12px; }
+.app-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--primary-dark);
+    display: flex;
+    justify-content: space-around;
+    padding: 8px 0;
+    z-index: 100;
+    box-shadow: 0 -2px 5px rgba(0,0,0,0.2);
+}
+
 .app-nav .nav-button {
     background: none;
     border: none;
     color: rgba(255, 255, 255, 0.85);
-    padding: 10px 18px;
-    margin-left: 8px;
-    font-size: 1em;
+    padding: 8px 0;
+    margin: 0;
+    font-size: 0.9em;
     cursor: pointer;
     border-radius: var(--border-radius);
-    transition: background-color var(--transition-speed) var(--transition-timing),
-                color var(--transition-speed) var(--transition-timing);
-    position: relative;
+    transition: all var(--transition-speed) var(--transition-timing);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 60px;
 }
-.app-nav .nav-button::after { /* Underline effect */
-    content: '';
-    position: absolute;
-    width: 0;
-    height: 3px; /* Thicker underline */
-    bottom: -2px; /* Position slightly below */
-    left: 50%;
-    background-color: var(--accent-color); /* Accent color underline */
-    transition: width var(--transition-speed) var(--transition-timing),
-                left var(--transition-speed) var(--transition-timing);
-    border-radius: 2px;
+
+.app-nav .nav-button i {
+    margin: 0 0 4px 0;
+    font-size: 1.2em;
 }
+
 .app-nav .nav-button:hover:not(.active) {
     background-color: rgba(255, 255, 255, 0.1);
     color: var(--white-bg);
 }
+
 .app-nav .nav-button.active {
     color: var(--white-bg);
     font-weight: bold;
+    background-color: rgba(255, 255, 255, 0.2);
 }
-.app-nav .nav-button.active::after { /* Active underline */
-    width: 70%;
-    left: 15%;
-}
-.app-nav .nav-button i { margin-right: 6px; }
 
 #app-container {
     flex-grow: 1;
@@ -1378,7 +1384,19 @@ pre.code-block strong { /* Highlight placeholders in prompt */
 
 @media (max-width: 480px) { /* Phone */
     /* html { font-size: 13px; } Base font adjusted in 768px */
-    body { font-size: 14px; }
+    body { 
+        font-size: 16px;
+        -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+    }
+    /* タッチターゲットの最小サイズ設定 */
+    .button,
+    .nav-button,
+    .option-button,
+    .eval-button {
+        min-width: 48px;
+        min-height: 48px;
+        padding: 12px 24px;
+    }
     .app-header h1 { font-size: 1.4em; }
     .app-nav .nav-button { padding: 8px 10px; font-size: 0.85em; margin: 3px; }
     .button { padding: 10px 18px; font-size: 0.95em; }
@@ -1425,7 +1443,7 @@ pre.code-block strong { /* Highlight placeholders in prompt */
         width: 100%;
         flex-direction: row;
         justify-content: flex-end;
-        align-items: baseline;
+        align-items: baseline; 
         gap: 5px;
     }
     .question-accuracy-item .accuracy-score { min-width: auto; margin-right: 0;}
