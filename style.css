@@ -579,8 +579,7 @@ fieldset { /* Basic fieldset styling */
 #study-card {
     transition: transform 0.3s ease-out, box-shadow 0.3s ease-out, border-left-color 0.3s ease-out;
     border-left: 5px solid transparent;
-    /* Add margin-bottom if needed to prevent overlap with fixed button if content is very short */
-    /* margin-bottom: 60px; */ /* Example */
+    margin-bottom: 60px; /* Prevent overlap with fixed evaluation panel */
 }
 #study-card.correct-answer { border-left-color: var(--success-color); }
 #study-card.incorrect-answer { border-left-color: var(--danger-color); }
@@ -679,6 +678,14 @@ fieldset { /* Basic fieldset styling */
     margin-top: 25px;
     padding-top: 25px;
     border-top: 1px solid var(--border-color);
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--white-bg);
+    padding-bottom: 15px;
+    z-index: 99;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
 }
 .evaluation-panel p {
     margin-bottom: 15px;
