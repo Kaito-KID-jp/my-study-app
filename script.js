@@ -1,5 +1,5 @@
 // ====================================================================
-// AI問題生成学習アプリ - アプリケーションロジック V2.1 (変更反映版)
+// AI問題生成学習アプリ - アプリケーションロジック V3.0
 // ====================================================================
 
 "use strict";
@@ -8,29 +8,49 @@
 // アプリケーション状態 (State)
 // ====================================================================
 const appState = {
+    // Data & Core State
     allDecks: {}, // { deckId: DeckData, ... }
     currentDeckId: null, // ホーム画面で選択中のデッキID
-    currentDashboardDeckId: null, // ダッシュボード画面で表示中のデッキID
-    studyList: [], // 現在の学習セッションの問題リスト (QuestionData[])
-    currentQuestionIndex: -1, // studyList 内の現在の問題インデックス
-    settings: { // ユーザー設定 (デフォルト値)
-        shuffleOptions: true, // 学習時の選択肢シャッフル
-        lowAccuracyThreshold: 50 // 「苦手な問題」フィルターの閾値 (%)
-    },
+    settings: {}, // 初期化時にデフォルト値で埋められる
     activeScreen: 'home-screen', // 現在表示中の画面ID
-    stats: { // 現在の学習セッション中の統計 (セッション開始時にリセットされる)
+    isLoading: true, // アプリがローディング中か
+    isStudyActive: false, // 学習セッションが進行中か
+    isModalOpen: false, // モーダルが表示されているか
+
+    // Study Session State
+    studyList: [],               // 現在の学習セッションの問題リスト (QuestionData[])
+    currentQuestionIndex: -1,    // studyList 内の現在の問題インデックス
+    studyStats: {               // 現在の学習セッション中の統計
         currentSessionCorrect: 0,
-        currentSessionIncorrect: 0
+        currentSessionIncorrect: 0,
     },
-    // ダッシュボード関連の表示状態
-    dashboardQuestionsPerPage: 10, // 問題リストの1ページあたりの表示件数
-    dashboardCurrentPage: 1,       // 問題リストの現在のページ番号
-    dashboardFilterAccuracy: 'all', // 問題リストの正答率フィルター ('all', 'low', 'medium', 'high', 'unanswered')
-    dashboardSearchQuery: '',      // 問題リストの検索クエリ
-    dashboardSortOrder: 'accuracyAsc', // 問題リストのソート順 ('accuracyAsc', 'accuracyDesc', 'mostIncorrect', 'questionOrder', 'lastAnswered')
-    dashboardViewMode: 'list',     // 問題分析の表示モード ('list', 'chart')
-    // 学習フィルター (ホーム画面)
-    studyFilter: 'all', // 現在選択中の学習フィルター ('all', 'lowAccuracy', 'incorrect', 'unanswered', 'difficult', 'normal', 'easy')
+
+    // Home Screen UI State
+    homeDeckFilterQuery: '',      // ホーム画面デッキリストの検索クエリ
+    homeDeckSortOrder: 'lastStudiedDesc', // ホーム画面デッキリストのソート順
+    homeDeckCurrentPage: 1,      // ホーム画面デッキリストの現在のページ
+    studyFilter: 'all',          // 現在選択中の学習フィルター ('all', etc.)
+
+    // Dashboard Screen UI State
+    currentDashboardDeckId: null, // ダッシュボード画面で表示中のデッキID
+    dashboardQuestionsPerPage: 10, // UIと同期用 (初期値は設定から)
+    dashboardCurrentPage: 1,
+    dashboardFilterAccuracy: 'all',
+    dashboardSearchQuery: '',
+    dashboardSortOrder: 'accuracyAsc',
+    dashboardViewMode: 'list',
+    isDashboardControlsCollapsed: true, // モバイルでのコントロールパネル状態
+
+    // Utility State
+    notificationTimeout: null,     // 通知表示用のタイマーID
+    charts: {                   // Chart.jsインスタンス
+        studyTrends: null,
+        questionAccuracy: null
+    },
+    appVersion: '3.0',          // アプリバージョン
+    lastFocusedElement: null,    // モーダル等からフォーカスを戻すため
+    fileReader: new FileReader(), // ファイル読み込み用 (再利用)
+    isSavingData: false,         // データ保存中のフラグ (多重保存防止)
 };
 
 // ====================================================================
@@ -48,7 +68,7 @@ const appState = {
  * @property {string} question - 問題文
  * @property {string[]} options - 選択肢の配列
  * @property {string} correctAnswer - 正解の選択肢 (options 内のいずれか)
- * @property {string} [explanation] - 解説文 (任意)
+ * @property {string} explanation - 解説文 (空文字の場合もある)
  * @property {QuestionHistory[]} history - 解答履歴
  */
 /**
@@ -67,34 +87,78 @@ const appState = {
  * @property {number} totalIncorrect - 累計不正解数
  * @property {SessionHistory[]} sessionHistory - セッション履歴
  */
+/**
+ * @typedef {Object} AppSettings アプリ設定
+ * @property {boolean} shuffleOptions
+ * @property {number} lowAccuracyThreshold
+ * @property {'light'|'dark'|'system'} theme
+ * @property {number} homeDecksPerPage
+ * @property {number} dashboardQuestionsPerPage
+ */
+/**
+ * @typedef {Object} ExportData エクスポート用データ形式
+ * @property {string} appVersion - エクスポート元のアプリバージョン
+ * @property {number} exportTimestamp - エクスポート日時
+ * @property {Object<string, DeckData>} allDecks - 全デッキデータ
+ * @property {AppSettings} settings - アプリ設定
+ * @property {string|null} currentDeckId - エクスポート時の選択中デッキID
+ */
+/**
+ * @typedef {'info'|'success'|'warning'|'error'} NotificationType
+ */
+/**
+ * @typedef {{id: string, text: string, class?: string, onClick?: () => void, disabled?: boolean}} ModalButtonConfig
+ */
+/**
+ * @typedef {Object} ModalOptions
+ * @property {string} title - モーダルタイトル
+ * @property {string | HTMLElement} content - モーダル本文 (HTML文字列またはDOM要素)
+ * @property {ModalButtonConfig[]} [buttons] - フッターボタン設定の配列
+ * @property {string} [size='md'] - モーダルサイズ ('sm', 'md', 'lg', 'xl')
+ * @property {() => void} [onClose] - 閉じるボタンやオーバーレイクリック時のコールバック
+ */
 
 // ====================================================================
 // 定数
 // ====================================================================
-const LS_KEYS = { // LocalStorage のキー
-    DECKS: 'studyAppDecks_v2',
-    CURRENT_DECK_ID: 'studyAppCurrentDeckId_v2',
-    SETTINGS: 'studyAppSettings_v2'
+const LS_KEYS = {
+    DECKS: 'studyAppDecks_v3',
+    CURRENT_DECK_ID: 'studyAppCurrentDeckId_v3',
+    SETTINGS: 'studyAppSettings_v3',
+    LAST_SCREEN: 'studyAppLastScreen_v3'
 };
-const DASHBOARD_TREND_SESSIONS = 30; // 学習推移グラフに表示する最大セッション数
-const DASHBOARD_ACCURACY_THRESHOLDS = { LOW: 49, MEDIUM: 79 }; // ダッシュボード用フィルター閾値（この値以下）
-const MAX_RECENT_HISTORY = 5; // ダッシュボード詳細表示の履歴件数
-const NOTIFICATION_DURATION = 4000; // 通知のデフォルト表示時間(ms)
-const CRITICAL_ELEMENT_IDS = [ // アプリ起動に必須のDOM要素IDリスト
-    'app-container', 'home-screen', 'study-screen', 'dashboard-screen', 'settings-screen',
-    'options-buttons-container', // ★ HTML側のID修正に合わせて確認済み
-    'question-text', 'deck-list', 'global-notification',
-    'dashboard-analysis-controls' // ★ HTML側のID追加に合わせて確認済み
+const DEFAULT_SETTINGS = {
+    shuffleOptions: true,
+    lowAccuracyThreshold: 50,
+    theme: 'system',
+    homeDecksPerPage: 10,
+    dashboardQuestionsPerPage: 10
+};
+const DASHBOARD_TREND_SESSIONS = 30;
+const DASHBOARD_ACCURACY_THRESHOLDS = { LOW: 49, MEDIUM: 79 };
+const MAX_RECENT_HISTORY = 5;
+const NOTIFICATION_DURATION = 4000;
+const DEBOUNCE_DELAY = 300;
+const MIN_DEBOUNCE_DELAY = 100; // 短いデバウンス（例：プログレスバー更新）
+const CRITICAL_ELEMENT_IDS = [
+    'app-container', 'app-loading-overlay', 'global-notification', 'modal-overlay',
+    'home-screen', 'study-screen', 'dashboard-screen', 'settings-screen',
+    'deck-list', 'options-buttons-container', 'question-text', 'dashboard-analysis-controls-panel'
 ];
+const DATE_FORMAT_OPTIONS = { // date-fns互換は不要に
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+};
+const PAGINATION_BUTTON_COUNT = 5; // ページネーションで表示する最大ボタン数
 
 // ====================================================================
-// DOM要素参照 & Chartインスタンス & グローバル変数
+// DOM要素参照 & グローバル変数
 // ====================================================================
 const dom = {}; // DOM要素をキャッシュするオブジェクト
-let notificationTimeout = null; // 通知表示用のタイマーID
-let studyTrendsChart = null; // 学習推移グラフのChart.jsインスタンス
-let questionAccuracyChart = null; // 問題正答率グラフのChart.jsインスタンス
-let isInitializing = true; // アプリ初期化中フラグ
+let searchDebounceTimer = null; // 検索用デバウンスタ
+let filterCountDebounceTimer = null; // ホームフィルターカウント更新用
+let resizeDebounceTimer = null; // リサイズイベント用
+let systemThemeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
 // ====================================================================
 // 初期化 (Initialization)
@@ -103,164 +167,130 @@ document.addEventListener('DOMContentLoaded', initializeApp);
 
 /** アプリケーション全体の初期化処理 */
 async function initializeApp() {
-    console.log("Initializing app V2.1..."); // バージョン更新
-    const loadingOverlay = document.getElementById('app-loading-overlay');
-    const initErrorDisplay = document.getElementById('app-init-error');
+    console.log(`Initializing AI Study App V${appState.appVersion}...`);
+    const startTime = performance.now();
+    updateLoadingOverlay(true, "初期化中..."); // すぐにローディング表示
 
     try {
-        // 0. Show loading overlay immediately
-        if (loadingOverlay) loadingOverlay.classList.add('active');
-
-        // 1. Cache essential DOM elements and check availability
-        console.log("Step 1: Caching DOM elements...");
-        const domReady = cacheDOMElements();
-        if (!domReady) {
-            throw new Error("必要なUI要素が見つかりません。HTMLファイルが破損しているか、読み込みに失敗した可能性があります。");
+        // 1. DOM要素のキャッシュと検証
+        logInitStep("1. Caching DOM elements");
+        if (!cacheDOMElements()) {
+            throw new Error("致命的なUI要素が見つかりません。アプリを起動できません。");
         }
-        console.log("Step 1: DOM elements cached successfully.");
+        logInitStep("1. DOM caching complete");
 
-        // 2. Load data from LocalStorage (Decks, Settings, Current Deck)
-        console.log("Step 2: Loading initial data from LocalStorage...");
-        loadInitialData();
-        console.log("Step 2: Initial data loaded.");
+        // 2. LocalStorageからデータ読み込みと検証
+        logInitStep("2. Loading data from LocalStorage");
+        loadInitialData(); // 設定、デッキ、選択中デッキIDなどを読み込み・検証
+        logInitStep("2. Initial data loaded");
 
-        // 3. Apply initial settings to UI elements
-        console.log("Step 3: Applying initial settings to UI...");
-        applyInitialSettings(); // 設定をUIに反映
-        console.log("Step 3: Initial settings applied to UI.");
+        // 3. 初期設定をUIに適用（テーマ含む）
+        logInitStep("3. Applying initial settings to UI");
+        applyTheme(appState.settings.theme); // まずテーマを適用
+        applyInitialSettingsToUI();        // その他の設定を適用
+        logInitStep("3. Initial settings applied");
 
-        // 4. Set up event listeners for the entire application
-        console.log("Step 4: Setting up event listeners...");
-        setupEventListeners(); // イベントリスナー設定
+        // 4. イベントリスナー設定
+        logInitStep("4. Setting up event listeners");
+        setupGlobalEventListeners(); // グローバルリスナー（リサイズなど）
+        setupScreenEventListeners(); // 各画面固有のリスナー
+        logInitStep("4. Event listeners set up");
 
-        // ★ ヘッダータイトルクリックでホームに戻る機能を追加
-        const appHeaderTitle = document.querySelector('.app-header h1');
-        if (appHeaderTitle) {
-            appHeaderTitle.style.cursor = 'pointer'; // クリック可能を示すカーソル
-            appHeaderTitle.addEventListener('click', () => {
-                if (appState.activeScreen !== 'study-screen' || confirmQuitStudy(false)) { // 学習中は中断確認
-                   navigateToScreen('home-screen');
-                }
-            });
-            console.log("Header title click listener added.");
+        // 5. 初期UI状態の更新
+        logInitStep("5. Updating initial UI state");
+        updateHomeUI();             // ホーム画面全体の更新
+        populateDashboardDeckSelect(); // ダッシュボード選択肢更新
+        logInitStep("5. Initial UI state updated");
+
+        // 6. 最後に表示していた画面、またはホーム画面に遷移
+        const lastScreen = loadData(LS_KEYS.LAST_SCREEN) || 'home-screen';
+        logInitStep(`6. Navigating to initial screen: ${lastScreen}`);
+        // 学習画面からは開始しないように
+        const initialScreen = lastScreen === 'study-screen' ? 'home-screen' : lastScreen;
+        navigateToScreen(initialScreen, true); // true: 初期化時のナビゲーション
+        logInitStep("6. Navigation complete");
+
+        // 7. ダッシュボードの初回レンダリング（必要なら）
+        if (appState.activeScreen === 'dashboard-screen') {
+            logInitStep("7. Initial dashboard rendering");
+            await renderDashboard(); // エラーは renderDashboard 内で処理
         } else {
-            console.warn("App header title element not found for click listener.");
+             logInitStep("7. Skipping initial dashboard rendering");
         }
 
-        console.log("Step 4: Event listeners set up.");
-
-        // 5. Update UI based on loaded data (Deck List, Top Screen Info)
-        console.log("Step 5: Updating initial UI state...");
-        updateDeckListUI();
-        updateTopScreenDisplay(); // currentDeckIdを考慮して表示
-        populateDashboardDeckSelect(); // ダッシュボードの選択肢も更新
-        console.log("Step 5: Initial UI state updated.");
-
-        // 6. Navigate to the initial or last active screen
-        console.log("Step 6: Navigating to initial screen:", appState.activeScreen);
-        navigateToScreen(appState.activeScreen);
-        console.log("Step 6: Navigation complete.");
-
-        // 7. Render dashboard if it's the active screen and a deck is selected
-        if (appState.activeScreen === 'dashboard-screen' && appState.currentDashboardDeckId) {
-            console.log("Step 7: Rendering initial dashboard for deck:", appState.currentDashboardDeckId);
-            try {
-                await renderDashboard();
-            } catch(dashboardError) {
-                 console.error("Error rendering dashboard on init:", dashboardError);
-                 showNotification("ダッシュボードの初期表示中にエラーが発生しました。", "error", 6000);
-            }
-            console.log("Step 7: Initial dashboard rendering attempted.");
-        } else if (appState.activeScreen === 'dashboard-screen') {
-             if (dom.dashboardContent) dom.dashboardContent.style.display = 'none';
-             if (dom.dashboardNoDeckMessage) dom.dashboardNoDeckMessage.style.display = 'block';
-        } else {
-            console.log("Step 7: Skipping initial dashboard rendering.");
-        }
-
-        console.log("App initialization successful.");
-        isInitializing = false; // 初期化完了
+        appState.isLoading = false; // 初期化完了フラグ
+        const endTime = performance.now();
+        console.log(`App initialization successful in ${(endTime - startTime).toFixed(2)} ms.`);
 
     } catch (error) {
         console.error("CRITICAL ERROR during app initialization:", error);
-        if (dom.appContainer) {
-            dom.appContainer.innerHTML = ''; // Clear potentially broken content
-        }
-        if(initErrorDisplay) {
-            initErrorDisplay.textContent = `アプリの起動に失敗しました: ${error.message} ページを再読み込みするか、開発者にご連絡ください。`;
-            initErrorDisplay.style.display = 'block';
-        }
-        showNotification(`アプリ起動エラー: ${error.message}`, "error", 15000);
-
+        handleInitializationError(error); // エラー処理関数
     } finally {
-        // Ensure overlay hides even if there was an error, maybe after a slightly longer delay
-        const hideDelay = isInitializing ? 500 : 200; // Longer delay if init failed?
+        // 遅延させてローディングオーバーレイを非表示（成功時・失敗時両方）
         setTimeout(() => {
-            if (loadingOverlay) loadingOverlay.classList.remove('active');
-            console.log("Loading overlay hidden after initialization process.");
-        }, hideDelay);
+            updateLoadingOverlay(false);
+            console.log("Loading overlay hidden.");
+        }, appState.isLoading ? 500 : 200); // 失敗時は少し長く表示
     }
 }
 
-
 /**
- * アプリケーションで利用するDOM要素への参照をキャッシュし、必須要素の存在を確認する
+ * アプリケーションで利用するDOM要素への参照をキャッシュする
  * @returns {boolean} 必須要素が全て見つかった場合は true, そうでない場合は false
  */
 function cacheDOMElements() {
     console.log("Caching DOM elements...");
+    let allFound = true;
+    let criticalFound = true;
     const ids = [
         // Critical / General
         'app-container', 'app-loading-overlay', 'global-notification', 'notification-message',
-        'notification-icon', 'notification-close-button', 'app-init-error',
+        'notification-icon', 'notification-close-button', 'app-init-error', 'theme-toggle-button',
         // Screens
         'home-screen', 'study-screen', 'dashboard-screen', 'settings-screen', 'prompt-guide-screen',
+        // Modal
+        'modal-overlay', 'modal-dialog', 'modal-title', 'modal-body', 'modal-footer', 'modal-close-button',
         // Home Screen
-        'json-file-input', 'load-status', 'deck-list', 'current-deck-name', 'total-questions',
+        'json-file-input', 'load-status', 'deck-list-controls', 'deck-search-input', 'deck-sort-select',
+        'deck-list', 'deck-list-pagination', 'current-deck-info', 'current-deck-name', 'total-questions',
         'current-deck-last-studied', 'current-deck-accuracy', 'reset-history-button', 'start-study-button',
-        'study-filter-options', 'filtered-question-count', 'low-accuracy-threshold-display-filter',
+        'study-filter-options', 'filtered-question-count-display', 'low-accuracy-threshold-display-filter',
         // Study Screen
-        'study-screen-title', 'study-card', 'question-counter', 'question-text',
-        'options-buttons-container', // ★ HTMLに合わせて確認済み
-        'answer-area', 'feedback-message', 'answer-text', 'explanation-text', 'retry-button',
+        'study-progress-container', 'study-progress-bar', 'study-progress-text', 'study-screen-title',
+        'study-card', 'question-counter', 'question-text', 'options-buttons-container', 'answer-area',
+        'feedback-container', 'feedback-message', 'feedback-icon', 'answer-text', 'explanation-text', 'retry-button',
         'evaluation-controls', 'study-complete-message', 'session-correct-count', 'session-incorrect-count',
-        'back-to-top-button', 'quit-study-button',
+        'back-to-home-button', 'quit-study-header-button',
         // Dashboard Screen
         'dashboard-deck-select', 'dashboard-content', 'dashboard-no-deck-message',
+        'dashboard-controls-toggle', 'dashboard-analysis-controls-panel',
         'dashboard-overview', 'dashboard-deck-name', 'dashboard-total-questions', 'dashboard-total-answered',
         'dashboard-overall-accuracy', 'dashboard-last-studied',
         'dashboard-trends', 'study-trends-chart-container', 'study-trends-chart', 'study-trends-no-data',
         'dashboard-trends-sessions-count',
-        'dashboard-question-analysis', 'dashboard-analysis-controls', // ★ HTMLに合わせて確認済み
-        'dashboard-filter-accuracy',
-        'dashboard-filter-threshold-low', 'dashboard-filter-threshold-medium-low',
+        'dashboard-question-analysis',
+        'dashboard-filter-accuracy', 'dashboard-filter-threshold-low', 'dashboard-filter-threshold-medium-low',
         'dashboard-filter-threshold-medium-high', 'dashboard-filter-threshold-high',
         'dashboard-search-query', 'dashboard-search-button', 'dashboard-search-clear', 'dashboard-sort-order',
-        'view-mode-list', 'view-mode-chart', // ボタン本体
-        'question-analysis-view', 'question-list-view', 'question-chart-view', // 表示エリア
+        'view-mode-list', 'view-mode-chart', 'dashboard-items-per-page',
+        'question-analysis-view', 'question-list-view', 'question-chart-view',
         'question-accuracy-list', 'question-pagination', 'question-accuracy-chart-container',
         'question-accuracy-chart', 'question-accuracy-no-data',
-        'question-detail-view', 'detail-question-number', 'detail-question-text', 'detail-correct-answer',
-        'detail-accuracy', 'detail-correct-count', 'detail-total-count', 'detail-recent-history',
-        'close-detail-view', 'detail-history-count',
+        'question-detail-view', /* Detail view elements will be dynamically added to modal */
         // Settings Screen
         'settings-container', 'setting-shuffle-options', 'setting-low-accuracy-threshold',
+        'setting-theme', 'export-data-button', 'import-data-input', 'import-status', 'reset-all-data-button',
         'save-settings-button', 'settings-save-status',
         // Prompt Guide Screen
-        'copy-prompt-button', 'copy-status', 'prompt-text',
+        'prompt-field-topic', 'prompt-field-count', 'prompt-field-level', 'copy-prompt-button', 'copy-status',
+        'prompt-text-template', 'json-check-area', 'json-check-input', 'json-check-button', 'json-check-status',
     ];
-
-    let allFound = true;
-    let criticalFound = true;
 
     ids.forEach(id => {
         const camelCaseId = id.replace(/-([a-z])/g, g => g[1].toUpperCase());
-        const element = document.getElementById(id);
-        dom[camelCaseId] = element;
-
-        if (!element) {
+        dom[camelCaseId] = document.getElementById(id);
+        if (!dom[camelCaseId]) {
             const isCritical = CRITICAL_ELEMENT_IDS.includes(id);
-            // エラーログは警告レベルに留める
             console.warn(`DOM element${isCritical ? ' [CRITICAL]' : ''} not found: #${id}`);
             if (isCritical) {
                 criticalFound = false;
@@ -271,116 +301,55 @@ function cacheDOMElements() {
 
     dom.navButtons = document.querySelectorAll('.nav-button');
     dom.screens = document.querySelectorAll('.screen');
-    dom.evalButtons = document.querySelectorAll('.eval-button'); // 取得方法は変更なし
+    dom.evalButtons = document.querySelectorAll('.eval-button');
     dom.studyFilterRadios = document.querySelectorAll('input[name="study-filter"]');
+    dom.appHeaderTitle = document.querySelector('.app-header h1.app-title');
+    dom.appBody = document.body;
 
-    if (dom.navButtons.length === 0) { console.warn("No navigation buttons found."); allFound = false; }
-    if (dom.screens.length === 0) { console.warn("No screen elements found."); criticalFound = false; allFound = false; }
-    // 評価ボタンやフィルターラジオは必須ではない場合がある
-    if (dom.evalButtons.length === 0) { console.warn("No evaluation buttons found."); }
-    if (dom.studyFilterRadios.length === 0) { console.warn("No study filter radio buttons found."); }
+    // Query Selector checks (less critical but good to have)
+    if (!dom.appHeaderTitle) console.warn("App header title element not found.");
+    if (dom.navButtons.length === 0) { console.warn("No navigation buttons found."); }
+    if (dom.screens.length === 0) { console.warn("No screen elements found."); criticalFound = false; } // Screens are critical
 
-
-    console.log(`DOM caching complete. All elements found: ${allFound}. All critical elements found: ${criticalFound}.`);
+    console.log(`DOM caching: ${allFound ? 'All' : 'Some'} elements found. Critical elements ${criticalFound ? 'found' : 'MISSING'}.`);
     return criticalFound;
 }
 
+/** 初期化時のエラーを処理する */
+function handleInitializationError(error) {
+    appState.isLoading = false; // Ensure loading stops eventually
+    const errorDisplay = dom.appInitError;
+    const container = dom.appContainer;
 
-/** 初期設定値をUIに反映させる */
-function applyInitialSettings() {
-    loadSettingsToUI();
-
-    if (dom.dashboardFilterThresholdLow) dom.dashboardFilterThresholdLow.textContent = DASHBOARD_ACCURACY_THRESHOLDS.LOW;
-    if (dom.dashboardFilterThresholdMediumLow) dom.dashboardFilterThresholdMediumLow.textContent = DASHBOARD_ACCURACY_THRESHOLDS.LOW + 1;
-    if (dom.dashboardFilterThresholdMediumHigh) dom.dashboardFilterThresholdMediumHigh.textContent = DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM;
-    if (dom.dashboardFilterThresholdHigh) dom.dashboardFilterThresholdHigh.textContent = DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM + 1;
-
-    if (dom.dashboardTrendsSessionsCount) {
-        dom.dashboardTrendsSessionsCount.textContent = DASHBOARD_TREND_SESSIONS;
+    if (container) container.innerHTML = ''; // Clear potentially broken UI
+    if (errorDisplay) {
+        errorDisplay.textContent = `致命的なエラー: ${error.message} アプリを初期化できません。ページを再読み込みするか、開発者にご連絡ください。`;
+        errorDisplay.style.display = 'block';
+        errorDisplay.setAttribute('aria-hidden', 'false');
+    } else {
+        // Fallback if even the error display fails
+        alert(`致命的なエラー: ${error.message} アプリを初期化できません。`);
     }
-    if (dom.detailHistoryCount) {
-        dom.detailHistoryCount.textContent = MAX_RECENT_HISTORY;
-    }
-    if (dom.lowAccuracyThresholdDisplayFilter) {
-        dom.lowAccuracyThresholdDisplayFilter.textContent = appState.settings.lowAccuracyThreshold;
-    }
+    // Ensure overlay is hidden, handled in finally block
 }
 
-// ====================================================================
-// イベントリスナー設定 (Event Listener Setup)
-// ====================================================================
-/** アプリケーション全体のイベントリスナーを設定する */
-function setupEventListeners() {
-    const safeAddEventListener = (element, event, handler, options = {}) => {
-        if (element) {
-            element.addEventListener(event, handler, options);
+/** ローディングオーバーレイの表示/非表示とテキスト更新 */
+function updateLoadingOverlay(show, text = "読み込み中...") {
+    if (!dom.appLoadingOverlay) return;
+    const overlay = dom.appLoadingOverlay;
+    requestAnimationFrame(() => {
+        if (show) {
+            overlay.querySelector('p').textContent = text;
+            overlay.classList.add('active');
         } else {
-             // ★ ログ追加：どの要素でリスナー設定が失敗したかわかりやすく
-             console.warn(`Event listener setup failed: Element not found for ${event} handler.`);
-        }
-    };
-
-    // === Navigation ===
-    if (dom.navButtons) {
-        dom.navButtons.forEach(button => safeAddEventListener(button, 'click', handleNavClick));
-    }
-
-    // === Global Notification Close ===
-    safeAddEventListener(dom.notificationCloseButton, 'click', hideNotification);
-
-    // === Home Screen ===
-    safeAddEventListener(dom.jsonFileInput, 'change', handleFileSelect);
-    safeAddEventListener(dom.deckList, 'click', handleDeckListClick);
-    safeAddEventListener(dom.deckList, 'keydown', handleDeckListKeydown);
-    safeAddEventListener(dom.startStudyButton, 'click', startStudy);
-    safeAddEventListener(dom.resetHistoryButton, 'click', resetCurrentDeckHistory);
-    if (dom.studyFilterRadios) {
-        dom.studyFilterRadios.forEach(radio => safeAddEventListener(radio, 'change', handleStudyFilterChange));
-    }
-
-    // === Study Screen ===
-    safeAddEventListener(dom.optionsButtonsContainer, 'click', handleOptionButtonClick);
-    safeAddEventListener(dom.quitStudyButton, 'click', () => confirmQuitStudy(true)); // ★ ユーザー起因の中断
-    safeAddEventListener(dom.backToTopButton, 'click', handleBackToTop);
-    safeAddEventListener(dom.retryButton, 'click', retryCurrentQuestion);
-    if (dom.evalButtons) { // ★ 評価ボタンのリスナー設定は変更なし
-        dom.evalButtons.forEach(button => safeAddEventListener(button, 'click', handleEvaluation));
-    }
-
-    // === Dashboard Screen ===
-    safeAddEventListener(dom.dashboardDeckSelect, 'change', handleDashboardDeckChange);
-    safeAddEventListener(dom.dashboardFilterAccuracy, 'change', handleDashboardFilterChange);
-    safeAddEventListener(dom.dashboardSearchQuery, 'input', handleDashboardSearchInput);
-    safeAddEventListener(dom.dashboardSearchQuery, 'keydown', (e) => { if (e.key === 'Enter') applyDashboardSearch(); });
-    safeAddEventListener(dom.dashboardSearchButton, 'click', applyDashboardSearch);
-    safeAddEventListener(dom.dashboardSearchClear, 'click', clearDashboardSearch);
-    safeAddEventListener(dom.dashboardSortOrder, 'change', handleDashboardSortChange);
-    safeAddEventListener(dom.viewModeList, 'click', () => setDashboardViewMode('list'));
-    safeAddEventListener(dom.viewModeChart, 'click', () => setDashboardViewMode('chart'));
-    safeAddEventListener(dom.questionAccuracyList, 'click', handleQuestionItemClick);
-    safeAddEventListener(dom.questionAccuracyList, 'keydown', handleQuestionItemKeydown);
-    safeAddEventListener(dom.questionPagination, 'click', handlePaginationClick);
-    safeAddEventListener(dom.closeDetailView, 'click', closeQuestionDetailView);
-
-    // === Settings Screen ===
-    safeAddEventListener(dom.saveSettingsButton, 'click', saveSettings);
-    safeAddEventListener(dom.settingLowAccuracyThreshold, 'input', () => {
-        if(dom.settingLowAccuracyThreshold && dom.lowAccuracyThresholdDisplayFilter) {
-             const value = dom.settingLowAccuracyThreshold.value;
-             const numValue = parseInt(value, 10);
-             if (!isNaN(numValue) && numValue >= 1 && numValue <= 99) {
-                dom.lowAccuracyThresholdDisplayFilter.textContent = numValue;
-             } else {
-                // 必要であれば、不正な値の時の表示をデフォルトに戻すなどの処理を追加
-                dom.lowAccuracyThresholdDisplayFilter.textContent = appState.settings.lowAccuracyThreshold;
-             }
+            overlay.classList.remove('active');
         }
     });
+}
 
-    // === AI Prompt Guide Screen ===
-    safeAddEventListener(dom.copyPromptButton, 'click', copyPromptToClipboard);
-
-    console.log("Event listeners setup complete.");
+/** 初期化ステップをコンソールに出力 */
+function logInitStep(message) {
+    console.log(`%cINIT: ${message}`, 'color: #3498db; font-weight: bold;');
 }
 
 
@@ -391,806 +360,948 @@ function setupEventListeners() {
 /**
  * 指定されたキーでデータをLocalStorageに安全に保存する
  * @param {string} key 保存キー
- * @param {any} data 保存するデータ (JSONシリアライズ可能なもの)
- * @returns {boolean} 保存に成功した場合は true, 失敗した場合は false
+ * @param {any} data 保存するデータ
+ * @returns {boolean} 保存成功なら true, 失敗なら false
  */
 function saveData(key, data) {
+    if (appState.isSavingData) {
+        console.warn(`Data save already in progress for key "${key}". Skipping.`);
+        return false; // Avoid potential race conditions? Maybe queue later?
+    }
+    appState.isSavingData = true; // Set saving flag
+
     try {
-        if (data === undefined || data === null) {
-            localStorage.removeItem(key);
-            console.log(`Data removed from LocalStorage for key "${key}"`);
-        } else {
-            const jsonData = JSON.stringify(data);
-            localStorage.setItem(key, jsonData);
-        }
-        return true; // 保存成功
+        const jsonData = JSON.stringify(data);
+        localStorage.setItem(key, jsonData);
+        // console.debug(`Data saved to LocalStorage: ${key}`);
+        return true;
     } catch (e) {
         console.error(`Failed to save data to LocalStorage for key "${key}":`, e);
         let message = `データ (${key}) の保存中にエラーが発生しました。`;
-        if (e instanceof DOMException && (e.name === 'QuotaExceededError' || e.code === 22 || e.message.toLowerCase().includes('quota'))) {
-             const deckDataSize = (localStorage.getItem(LS_KEYS.DECKS)?.length || 0);
-             const sizeMB = (deckDataSize / 1024 / 1024).toFixed(2);
-             message = `データの保存に失敗しました。ブラウザの保存容量 (現在約 ${sizeMB} MB) が上限に達している可能性があります。不要な問題集を削除してください。`;
+        if (e instanceof DOMException && (e.name === 'QuotaExceededError' || e.code === 22)) {
+            const sizeMB = calculateLocalStorageUsage();
+            message = `データ保存失敗: ブラウザの保存容量(約 ${sizeMB} MB)の上限に達した可能性があります。設定画面から不要な問題集を削除するか、全データをエクスポートしてください。`;
         }
         showNotification(message, 'error', 8000);
-        return false; // 保存失敗
+        return false;
+    } finally {
+         appState.isSavingData = false; // Clear saving flag
     }
 }
 
 /**
  * 指定されたキーでLocalStorageからデータを安全に読み込み、検証・修復する
  * @param {string} key 読み込みキー
- * @returns {any | null} 読み込んだデータ、またはエラー/データなしの場合は null
+ * @param {any} [defaultValue=null] データが見つからない場合や無効な場合に返す値
+ * @returns {any} 読み込んだデータ、または defaultValue
  */
-function loadData(key) {
+function loadData(key, defaultValue = null) {
     try {
         const data = localStorage.getItem(key);
         if (data === null) {
-            console.log(`No data found in LocalStorage for key "${key}".`);
-            return null;
+            // console.debug(`No data found in LocalStorage for key "${key}". Returning default.`);
+            return defaultValue;
         }
 
         const parsedData = JSON.parse(data);
 
-        if (key === LS_KEYS.DECKS && typeof parsedData === 'object' && parsedData !== null) {
-            return repairAndValidateDeckData(parsedData);
-        } else if (key === LS_KEYS.SETTINGS && typeof parsedData === 'object' && parsedData !== null) {
-            return repairAndValidateSettings(parsedData);
-        } else if (key === LS_KEYS.CURRENT_DECK_ID && typeof parsedData !== 'string' && parsedData !== null) {
-             console.warn(`Invalid data type for ${key} in LocalStorage. Expected string or null, got ${typeof parsedData}. Resetting to null.`);
-             saveData(key, null);
-             return null;
+        // Data Type Specific Validation/Repair
+        if (key === LS_KEYS.SETTINGS) {
+             return repairAndValidateSettings(parsedData); // Handles null/undefined/invalid
+        } else if (key === LS_KEYS.DECKS) {
+             return repairAndValidateAllDecks(parsedData); // Handles null/undefined/invalid
+        } else if (key === LS_KEYS.CURRENT_DECK_ID || key === LS_KEYS.LAST_SCREEN) {
+             return (typeof parsedData === 'string' && parsedData) ? parsedData : defaultValue;
         }
+        // Add other key checks if needed
 
         return parsedData;
 
     } catch (e) {
-        console.error(`Failed to load or parse data from LocalStorage for key "${key}":`, e);
-        showNotification(`データ (Key: ${key}) の読み込みまたは解析に失敗しました。データが破損している可能性があります。破損したデータを削除します。`, 'error', 6000);
-        try { localStorage.removeItem(key); } catch (removeError) { console.error(`Failed to remove corrupted data for key "${key}":`, removeError); }
-        return null;
+        console.error(`Failed to load/parse data from LocalStorage (Key: ${key}). Returning default. Error:`, e);
+        showNotification(`保存データ (Key: ${key}) の読み込みに失敗しました。データが破損している可能性があります。デフォルト値を使用します。`, 'warning', 6000);
+        // Optionally try to remove corrupted data, but be careful
+        // try { localStorage.removeItem(key); } catch (removeError) { console.error(...) }
+        return defaultValue;
     }
 }
 
-/**
- * デッキデータの構造を検証し、不足しているプロパティを初期化する
- * @param {object} decksData - LocalStorageから読み込んだ allDecks データ
- * @returns {object} 修復されたデッキデータ
- */
-function repairAndValidateDeckData(decksData) {
+/** 全デッキデータの検証と修復 */
+function repairAndValidateAllDecks(loadedDecks) {
+    if (typeof loadedDecks !== 'object' || loadedDecks === null) {
+        return {}; // Return empty object if data is invalid
+    }
     let dataModified = false;
     const validDecks = {};
-
-    for (const deckId in decksData) {
-        if (Object.hasOwnProperty.call(decksData, deckId)) {
-            const deck = decksData[deckId];
-            if (typeof deck === 'object' && deck !== null && deck.id === deckId && typeof deck.name === 'string' && Array.isArray(deck.questions)) {
-                const repairedDeck = { ...deck };
-
-                if (typeof repairedDeck.lastStudied !== 'number' && repairedDeck.lastStudied !== null) { repairedDeck.lastStudied = null; dataModified = true; }
-                if (typeof repairedDeck.totalCorrect !== 'number' || isNaN(repairedDeck.totalCorrect) || repairedDeck.totalCorrect < 0) { repairedDeck.totalCorrect = 0; dataModified = true; }
-                if (typeof repairedDeck.totalIncorrect !== 'number' || isNaN(repairedDeck.totalIncorrect) || repairedDeck.totalIncorrect < 0) { repairedDeck.totalIncorrect = 0; dataModified = true; }
-                if (!Array.isArray(repairedDeck.sessionHistory)) { repairedDeck.sessionHistory = []; dataModified = true; }
-                else {
-                    const originalLength = repairedDeck.sessionHistory.length;
-                    repairedDeck.sessionHistory = repairedDeck.sessionHistory.filter(s =>
-                        s && typeof s === 'object' && typeof s.ts === 'number' && typeof s.correct === 'number' && s.correct >= 0 && typeof s.incorrect === 'number' && s.incorrect >= 0
-                    );
-                    if (repairedDeck.sessionHistory.length !== originalLength) {
-                        dataModified = true;
-                    }
-                }
-
-                const validQuestions = [];
-                const originalQuestionLength = repairedDeck.questions.length;
-                repairedDeck.questions.forEach((q, index) => {
-                    if (q && typeof q === 'object' && typeof q.id === 'string' && typeof q.question === 'string' && Array.isArray(q.options) && q.options.length >= 2 && typeof q.correctAnswer === 'string') {
-                        const repairedQuestion = { ...q };
-
-                        // オプションと正解の検証を強化
-                        const originalOptionsLength = repairedQuestion.options.length;
-                        repairedQuestion.options = repairedQuestion.options
-                            .map(opt => (typeof opt === 'string' ? opt : String(opt)).trim()) // 文字列化とtrim
-                            .filter(opt => opt !== ''); // 空を除去
-                        repairedQuestion.correctAnswer = String(repairedQuestion.correctAnswer).trim();
-
-                        if (repairedQuestion.options.length < 2) {
-                             console.warn(`Invalid options (less than 2 valid) removed at index ${index} in deck "${repairedDeck.name}" (ID: ${deckId}). Question: "${q.question.substring(0, 20)}..."`);
-                             dataModified = true;
-                             return; // Skip this question
-                        }
-                        if (!repairedQuestion.options.includes(repairedQuestion.correctAnswer)) {
-                             console.warn(`Correct answer "${repairedQuestion.correctAnswer}" not found in valid options [${repairedQuestion.options.join(', ')}] at index ${index} in deck "${repairedDeck.name}" (ID: ${deckId}). Question: "${q.question.substring(0, 20)}..."`);
-                             dataModified = true;
-                             return; // Skip this question
-                        }
-                        if (repairedQuestion.options.length !== originalOptionsLength) {
-                            dataModified = true; // Options were cleaned
-                        }
-
-                        if (!Array.isArray(repairedQuestion.history)) { repairedQuestion.history = []; dataModified = true; }
-                        const originalHistoryLength = repairedQuestion.history.length;
-                        repairedQuestion.history = repairedQuestion.history.filter(h => h && typeof h === 'object' && typeof h.ts === 'number' && typeof h.correct === 'boolean');
-                        if (repairedQuestion.history.length !== originalHistoryLength) {
-                             dataModified = true;
-                        }
-
-                        repairedQuestion.history.forEach(h => {
-                            if (![null, 'difficult', 'normal', 'easy', undefined].includes(h.evaluation)) { // undefinedも許容
-                                h.evaluation = null;
-                                dataModified = true;
-                            }
-                        });
-
-                        if (typeof repairedQuestion.explanation !== 'string' && repairedQuestion.explanation !== undefined && repairedQuestion.explanation !== null) {
-                            repairedQuestion.explanation = String(repairedQuestion.explanation); // 文字列に変換
-                            dataModified = true;
-                        } else if (repairedQuestion.explanation === undefined || repairedQuestion.explanation === null) {
-                             repairedQuestion.explanation = ''; // 未定義なら空文字に
-                             dataModified = true;
-                        }
-
-                        validQuestions.push(repairedQuestion);
-                    } else {
-                        console.warn(`Invalid question structure removed at index ${index} in deck "${repairedDeck.name}" (ID: ${deckId}). Question: "${q?.question?.substring(0, 20)}..."`);
-                        dataModified = true;
-                    }
-                });
-                if (repairedDeck.questions.length !== originalQuestionLength) {
-                    dataModified = true; // Questions were removed
-                }
-                repairedDeck.questions = validQuestions;
-
-                validDecks[deckId] = repairedDeck;
-            } else {
-                console.warn(`Invalid deck structure removed for ID "${deckId}".`);
-                dataModified = true;
+    for (const deckId in loadedDecks) {
+        if (Object.hasOwnProperty.call(loadedDecks, deckId)) {
+            const deck = loadedDecks[deckId];
+            // Basic Deck Structure Validation
+            if (typeof deck !== 'object' || deck === null || deck.id !== deckId || typeof deck.name !== 'string') {
+                 console.warn(`Invalid deck structure removed for ID "${deckId}".`);
+                 dataModified = true;
+                 continue;
             }
+
+            const repairedDeck = { // Default values
+                lastStudied: null,
+                totalCorrect: 0,
+                totalIncorrect: 0,
+                sessionHistory: [],
+                questions: [],
+                ...deck, // Spread loaded data over defaults
+            };
+
+            // Detailed Property Validation & Repair
+            if (typeof repairedDeck.lastStudied !== 'number' && repairedDeck.lastStudied !== null) { repairedDeck.lastStudied = null; dataModified = true; }
+            if (typeof repairedDeck.totalCorrect !== 'number' || !Number.isFinite(repairedDeck.totalCorrect) || repairedDeck.totalCorrect < 0) { repairedDeck.totalCorrect = 0; dataModified = true; }
+            if (typeof repairedDeck.totalIncorrect !== 'number' || !Number.isFinite(repairedDeck.totalIncorrect) || repairedDeck.totalIncorrect < 0) { repairedDeck.totalIncorrect = 0; dataModified = true; }
+            if (!Array.isArray(repairedDeck.sessionHistory)) { repairedDeck.sessionHistory = []; dataModified = true; }
+            repairedDeck.sessionHistory = repairedDeck.sessionHistory.filter(isValidSessionHistory);
+             if(repairedDeck.sessionHistory.length !== deck.sessionHistory?.length) dataModified = true;
+
+
+            if (!Array.isArray(repairedDeck.questions)) { repairedDeck.questions = []; dataModified = true; }
+            const validQuestions = [];
+            const originalLength = repairedDeck.questions.length;
+            repairedDeck.questions.forEach((q, index) => {
+                const repairedQ = repairAndValidateQuestion(q, deckId, index);
+                if (repairedQ) {
+                    validQuestions.push(repairedQ);
+                    if(JSON.stringify(q) !== JSON.stringify(repairedQ)) dataModified = true; // Check if question was modified
+                } else {
+                    dataModified = true; // Question removed
+                }
+            });
+             repairedDeck.questions = validQuestions;
+             if (repairedDeck.questions.length !== originalLength) dataModified = true;
+
+             // Add deck to result only if it still has questions or is empty intentionally
+             if(repairedDeck.questions.length > 0 || originalLength === 0) {
+                 validDecks[deckId] = repairedDeck;
+             } else {
+                 console.warn(`Deck "${repairedDeck.name}" (${deckId}) removed because all questions were invalid.`);
+                 dataModified = true;
+             }
         }
     }
 
     if (dataModified) {
-        console.log("Deck data structure was repaired. Resaving to LocalStorage.");
-        if (!saveData(LS_KEYS.DECKS, validDecks)) {
-             // 保存失敗した場合、メモリ上のデータも元に戻す（あるいはエラーをスローする）
-             console.error("Failed to save repaired deck data. Data in memory might be inconsistent with LocalStorage.");
-             // return decksData; // Optionally return original data if save fails
-        }
+        console.warn("Deck data structure required repair/validation.");
+        // Optionally save the repaired data back immediately
+        // saveData(LS_KEYS.DECKS, validDecks);
     }
     return validDecks;
 }
 
-/**
- * 設定データの構造を検証し、不足または無効な値をデフォルトで補完する
- * @param {object} loadedSettings - LocalStorageから読み込んだ設定データ
- * @returns {object} 修復された設定データ
- */
-function repairAndValidateSettings(loadedSettings) {
-     const defaultSettings = { shuffleOptions: true, lowAccuracyThreshold: 50 };
-     let repairedSettings = { ...defaultSettings };
-     let modified = false;
+/** 個々の問題データの検証と修復 */
+function repairAndValidateQuestion(q, deckId = 'unknown', index = -1) {
+    if (typeof q !== 'object' || q === null) {
+         console.warn(`Invalid question object removed (Deck: ${deckId}, Index: ${index}).`);
+         return null;
+    }
+    const questionLogPrefix = `Question Validation (Deck: ${deckId}, Q: ${String(q.question).substring(0, 20)}...):`;
 
-     if (typeof loadedSettings.shuffleOptions === 'boolean') {
-         repairedSettings.shuffleOptions = loadedSettings.shuffleOptions;
-     } else if (loadedSettings.shuffleOptions !== undefined) {
-         modified = true;
-         console.warn(`Settings: shuffleOptions was invalid type (${typeof loadedSettings.shuffleOptions}), reset to default.`);
-     }
+    const repairedQ = {
+        id: '',
+        question: '',
+        options: [],
+        correctAnswer: '',
+        explanation: '',
+        history: [],
+        ...q
+    };
 
-     if (typeof loadedSettings.lowAccuracyThreshold === 'number' &&
-         !isNaN(loadedSettings.lowAccuracyThreshold) &&
-         loadedSettings.lowAccuracyThreshold >= 1 &&
-         loadedSettings.lowAccuracyThreshold <= 99) {
-         repairedSettings.lowAccuracyThreshold = Math.round(loadedSettings.lowAccuracyThreshold); // 整数に丸める
-     } else if (loadedSettings.lowAccuracyThreshold !== undefined) {
-        modified = true;
-        console.warn(`Settings: lowAccuracyThreshold was invalid (${loadedSettings.lowAccuracyThreshold}), reset to default.`);
-     }
+    // Validate required fields
+    if (typeof repairedQ.id !== 'string' || !repairedQ.id) {
+         repairedQ.id = generateUUID(); // Generate new ID if missing/invalid
+         console.warn(`${questionLogPrefix} Missing or invalid question ID, generated new ID: ${repairedQ.id}`);
+    }
+    if (typeof repairedQ.question !== 'string' || repairedQ.question.trim() === '') {
+         console.warn(`${questionLogPrefix} Invalid or empty question text. Question skipped.`); return null;
+    }
+    repairedQ.question = repairedQ.question.trim();
 
-     // Check for unexpected keys (optional, might be useful for future cleanup)
-     const allowedKeys = Object.keys(defaultSettings);
-     for (const key in loadedSettings) {
-         if (!allowedKeys.includes(key)) {
-             console.warn(`Settings: Found unexpected key "${key}" in loaded settings.`);
-             // delete repairedSettings[key]; // Optionally remove unknown keys
-         }
-     }
+    // Validate options
+    if (!Array.isArray(repairedQ.options)) {
+        console.warn(`${questionLogPrefix} 'options' is not an array. Question skipped.`); return null;
+    }
+    repairedQ.options = repairedQ.options
+        .map(opt => String(opt ?? '').trim()) // Ensure string, trim
+        .filter(opt => opt);                 // Remove empty strings
+    if (repairedQ.options.length < 2) {
+        console.warn(`${questionLogPrefix} Less than 2 valid options found after cleaning. Question skipped.`); return null;
+    }
+
+    // Validate correctAnswer
+    if (typeof repairedQ.correctAnswer !== 'string' || repairedQ.correctAnswer.trim() === '') {
+        console.warn(`${questionLogPrefix} Invalid or empty 'correctAnswer'. Question skipped.`); return null;
+    }
+    repairedQ.correctAnswer = repairedQ.correctAnswer.trim();
+    if (!repairedQ.options.includes(repairedQ.correctAnswer)) {
+        console.warn(`${questionLogPrefix} 'correctAnswer' ("${repairedQ.correctAnswer}") not found in valid options [${repairedQ.options.join(', ')}]. Question skipped.`); return null;
+    }
+
+    // Ensure explanation is string
+    if (typeof repairedQ.explanation !== 'string') {
+         repairedQ.explanation = String(repairedQ.explanation ?? '');
+    }
+    repairedQ.explanation = repairedQ.explanation.trim();
 
 
-     if (modified) {
-         console.warn("Settings data was repaired. Resaving repaired settings.");
-         if (!saveData(LS_KEYS.SETTINGS, repairedSettings)) {
-              console.error("Failed to save repaired settings data.");
-              // return defaultSettings; // Return defaults if save fails?
-         }
-     }
-     return repairedSettings;
+    // Validate history
+    if (!Array.isArray(repairedQ.history)) {
+        repairedQ.history = [];
+    }
+    repairedQ.history = repairedQ.history.filter(isValidQuestionHistory);
+
+    return repairedQ;
 }
 
+/** 設定データの検証とデフォルト値による補完 */
+function repairAndValidateSettings(loadedSettings) {
+    if (typeof loadedSettings !== 'object' || loadedSettings === null) {
+        return { ...DEFAULT_SETTINGS }; // Return defaults if loaded data is not an object
+    }
+
+    const repairedSettings = { ...DEFAULT_SETTINGS }; // Start with defaults
+    let modified = false;
+
+    for (const key in DEFAULT_SETTINGS) {
+        if (Object.hasOwnProperty.call(DEFAULT_SETTINGS, key)) {
+            const defaultValue = DEFAULT_SETTINGS[key];
+            const loadedValue = loadedSettings[key];
+
+            if (loadedValue === undefined || typeof loadedValue !== typeof defaultValue) {
+                 if (loadedValue !== undefined) { // Log only if a value existed but was wrong type
+                     console.warn(`Settings: Key "${key}" has invalid type (${typeof loadedValue}), expected (${typeof defaultValue}). Using default.`);
+                     modified = true;
+                 }
+                 continue; // Use default value
+            }
+
+             // Type-specific validation
+             let isValid = true;
+             switch(key) {
+                 case 'lowAccuracyThreshold':
+                    isValid = Number.isInteger(loadedValue) && loadedValue >= 1 && loadedValue <= 99;
+                    break;
+                 case 'homeDecksPerPage':
+                 case 'dashboardQuestionsPerPage':
+                     isValid = Number.isInteger(loadedValue) && [10, 20, 50, 100].includes(loadedValue); // Allowed values
+                     break;
+                case 'theme':
+                     isValid = ['light', 'dark', 'system'].includes(loadedValue);
+                     break;
+                 case 'shuffleOptions':
+                    isValid = typeof loadedValue === 'boolean'; // Already checked by initial typeof
+                    break;
+                // Add other settings validations here
+             }
+
+             if(isValid) {
+                repairedSettings[key] = loadedValue; // Use the valid loaded value
+             } else {
+                 console.warn(`Settings: Key "${key}" has invalid value (${loadedValue}). Using default.`);
+                 modified = true;
+             }
+        }
+    }
+
+    // Check for unexpected keys (optional)
+    for (const key in loadedSettings) {
+         if (!DEFAULT_SETTINGS.hasOwnProperty(key)) {
+             console.warn(`Settings: Found unexpected key "${key}" in loaded data. Ignoring.`);
+             modified = true; // Consider it modified as we're removing a key implicitly
+         }
+    }
+
+    if (modified) {
+         console.warn("Settings data structure required repair/validation.");
+    }
+
+    return repairedSettings;
+}
+
+/** 個々の QuestionHistory entry の形式を検証 */
+function isValidQuestionHistory(h) {
+    return (
+        h && typeof h === 'object' &&
+        typeof h.ts === 'number' && Number.isFinite(h.ts) && h.ts > 0 &&
+        typeof h.correct === 'boolean' &&
+        ([null, 'difficult', 'normal', 'easy'].includes(h.evaluation) || h.evaluation === undefined)
+    );
+}
+
+/** 個々の SessionHistory entry の形式を検証 */
+function isValidSessionHistory(s) {
+     return (
+        s && typeof s === 'object' &&
+        typeof s.ts === 'number' && Number.isFinite(s.ts) && s.ts > 0 &&
+        typeof s.correct === 'number' && Number.isInteger(s.correct) && s.correct >= 0 &&
+        typeof s.incorrect === 'number' && Number.isInteger(s.incorrect) && s.incorrect >= 0
+    );
+}
 
 /** アプリ起動時にLocalStorageから初期データを読み込む */
 function loadInitialData() {
-    const loadedSettings = loadData(LS_KEYS.SETTINGS);
-    // ★ repairAndValidateSettings が常にオブジェクトを返すようになったので、直接代入
-    appState.settings = repairAndValidateSettings(loadedSettings || {});
+    // Load and repair settings first
+    appState.settings = loadData(LS_KEYS.SETTINGS, { ...DEFAULT_SETTINGS });
+    // Sync UI state with loaded settings
+    appState.dashboardQuestionsPerPage = appState.settings.dashboardQuestionsPerPage;
 
-    appState.allDecks = loadData(LS_KEYS.DECKS) || {};
+    // Load and repair decks
+    appState.allDecks = loadData(LS_KEYS.DECKS, {});
 
-    appState.currentDeckId = loadData(LS_KEYS.CURRENT_DECK_ID) || null;
-
+    // Load current deck ID and validate against loaded decks
+    appState.currentDeckId = loadData(LS_KEYS.CURRENT_DECK_ID, null);
     if (appState.currentDeckId && !appState.allDecks[appState.currentDeckId]) {
-        console.warn(`Current deck ID "${appState.currentDeckId}" not found in loaded decks. Resetting current deck selection.`);
+        console.warn(`Current deck ID "${appState.currentDeckId}" invalid or deck missing. Resetting.`);
         appState.currentDeckId = null;
-        saveData(LS_KEYS.CURRENT_DECK_ID, null);
+        saveData(LS_KEYS.CURRENT_DECK_ID, null); // Persist reset
     }
 
-    // ダッシュボードの初期デッキIDは、ホームと同じにする
+    // Initialize dashboard deck ID based on current deck
     appState.currentDashboardDeckId = appState.currentDeckId;
 
-    console.log("Initial data loaded:", {
+    console.log("Initial data loaded/validated:", {
         settings: appState.settings,
         deckCount: Object.keys(appState.allDecks).length,
-        currentDeckId: appState.currentDeckId
+        currentDeckId: appState.currentDeckId,
     });
+}
+
+/** LocalStorage の使用量をおおよそ計算 (文字列長ベース) */
+function calculateLocalStorageUsage() {
+     let totalBytes = 0;
+     for (let i = 0; i < localStorage.length; i++) {
+         const key = localStorage.key(i);
+         const value = localStorage.getItem(key);
+         if (key && value) {
+             totalBytes += key.length + value.length;
+         }
+     }
+     // 1文字=2バイトで計算、MB単位に変換
+     const sizeMB = (totalBytes * 2 / (1024 * 1024)).toFixed(2);
+     return sizeMB;
 }
 
 // ====================================================================
 // UI制御関数 (UI Control Functions)
 // ====================================================================
 
-/**
- * ローディングオーバーレイの表示/非表示を切り替える
- * @param {boolean} show - 表示する場合は true, 非表示の場合は false
- */
-function showLoadingOverlay(show) {
-    if (isInitializing && show) return; // 初期化中はinitializeAppが制御
-    if (!dom.appLoadingOverlay) return;
-    requestAnimationFrame(() => {
-        if (dom.appLoadingOverlay) { // ★ 再度チェック（非同期のため）
-            dom.appLoadingOverlay.classList.toggle('active', show);
-        }
-    });
+// --- Themes ---
+/** テーマを適用し、状態とUIを更新 */
+function applyTheme(theme) {
+    const body = dom.appBody;
+    const currentTheme = getCurrentAppliedTheme(); // Gets 'light' or 'dark'
+
+    // Remove existing theme classes
+    body.classList.remove('theme-light', 'theme-dark');
+
+    let newTheme = theme;
+    if (theme === 'system') {
+         newTheme = systemThemeMediaQuery.matches ? 'dark' : 'light';
+         console.log(`System theme detected: ${newTheme}`);
+    }
+
+    body.classList.add(`theme-${newTheme}`); // Apply 'theme-light' or 'theme-dark'
+    appState.settings.theme = theme; // Store the *selected* setting ('light', 'dark', or 'system')
+
+    // Update theme toggle button appearance
+    updateThemeToggleButton(newTheme);
+
+    // Inform Chart.js about theme change if charts exist
+    if (appState.charts.studyTrends || appState.charts.questionAccuracy) {
+        updateChartThemes();
+    }
+    console.log(`Theme applied: ${theme} (Resolved to: ${newTheme})`);
 }
 
-/**
- * グローバル通知を表示する
- * @param {string} message - 表示するメッセージ
- * @param {'info'|'success'|'warning'|'error'} type - 通知タイプ (色が変わる)
- * @param {number} [duration=NOTIFICATION_DURATION] - 表示時間 (ミリ秒)
- */
+/** システムテーマ変更イベントのハンドラ */
+function handleSystemThemeChange(event) {
+    console.log("System theme change detected.");
+    if (appState.settings.theme === 'system') { // Only re-apply if set to system
+        applyTheme('system');
+    }
+}
+
+/** 現在bodyに適用されているテーマ('light' or 'dark')を取得 */
+function getCurrentAppliedTheme() {
+    return dom.appBody.classList.contains('theme-dark') ? 'dark' : 'light';
+}
+
+/** テーマ切り替えボタンのアイコンとaria-labelを更新 */
+function updateThemeToggleButton(appliedTheme) {
+     if (!dom.themeToggleButton) return;
+     const lightIcon = dom.themeToggleButton.querySelector('.theme-icon-light');
+     const darkIcon = dom.themeToggleButton.querySelector('.theme-icon-dark');
+     const srText = dom.themeToggleButton.querySelector('.sr-only');
+
+     if (lightIcon && darkIcon && srText) {
+         lightIcon.style.display = (appliedTheme === 'light') ? 'none' : 'inline-block';
+         darkIcon.style.display = (appliedTheme === 'dark') ? 'none' : 'inline-block';
+         srText.textContent = `現在のテーマ: ${appliedTheme === 'dark' ? 'ダーク' : 'ライト'}`;
+         dom.themeToggleButton.title = `${appliedTheme === 'dark' ? 'ライト' : 'ダーク'}モードに切り替え`;
+     }
+}
+
+/** Chart.jsのテーマ（色など）を更新する */
+function updateChartThemes() {
+    console.log("Updating chart themes...");
+    // TODO: Chart.js doesn't easily allow *full* dynamic theme swaps including scales, grid lines etc.
+    // The typical approach is to destroy and recreate the chart.
+    // Alternatively, selectively update colors where possible.
+    // For simplicity and robustness, we'll just re-render the relevant parts of the dashboard.
+    if (appState.activeScreen === 'dashboard-screen' && appState.currentDashboardDeckId) {
+        renderDashboardTrendsChart(appState.allDecks[appState.currentDashboardDeckId]); // Re-render trends
+        renderDashboardQuestionAnalysis(); // Re-render analysis (list or chart)
+    }
+}
+
+// --- Notifications ---
+/** グローバル通知を表示 */
 function showNotification(message, type = 'info', duration = NOTIFICATION_DURATION) {
     if (!dom.globalNotification || !dom.notificationMessage || !dom.notificationIcon) {
-        console.warn(`Notification elements not found, cannot display message: ${message} (Type: ${type})`);
-        if (type === 'error' && isInitializing) {
-            alert(`エラー: ${message}`); // 初期化中の致命的エラーはalertも出す
-        }
+        console.warn("Notification elements not found, cannot display:", { message, type });
+        // Fallback for critical errors during init?
+        // if (type === 'error' && appState.isLoading) alert(`Error: ${message}`);
         return;
     }
-    clearTimeout(notificationTimeout);
-    notificationTimeout = null;
+    clearTimeout(appState.notificationTimeout);
+    appState.notificationTimeout = null;
 
     dom.notificationMessage.textContent = message;
     const icons = { info: 'fa-info-circle', success: 'fa-check-circle', warning: 'fa-exclamation-triangle', error: 'fa-exclamation-circle' };
-    // Use innerHTML carefully, but here it's safe as we control the content
     dom.notificationIcon.innerHTML = `<i class="fas ${icons[type] || icons.info}" aria-hidden="true"></i>`;
-    dom.globalNotification.className = 'notification'; // Reset classes first
 
-    // Force reflow before adding classes to ensure transition works
-    void dom.globalNotification.offsetWidth;
+    // Apply type class for styling
+    dom.globalNotification.className = `notification ${type}`; // Reset and set type
 
-    requestAnimationFrame(() => {
-         if (dom.globalNotification) { // ★ 再度チェック
-             dom.globalNotification.classList.add(type);
-             dom.globalNotification.classList.add('show');
-         }
-    });
+    // Use aria-hidden for visibility toggle for better accessibility
+    dom.globalNotification.setAttribute('aria-hidden', 'false');
 
     if (duration > 0) {
-        notificationTimeout = setTimeout(() => {
-            hideNotification();
-        }, duration);
+        appState.notificationTimeout = setTimeout(hideNotification, duration);
     }
 }
 
-/** グローバル通知を非表示にする */
+/** グローバル通知を非表示 */
 function hideNotification() {
     if (!dom.globalNotification) return;
-    clearTimeout(notificationTimeout);
-    notificationTimeout = null;
-    dom.globalNotification.classList.remove('show');
-    // Optional: Remove type class after transition
+    clearTimeout(appState.notificationTimeout);
+    appState.notificationTimeout = null;
+    dom.globalNotification.setAttribute('aria-hidden', 'true');
+    // Remove type class after transition for clean state? (optional)
     // dom.globalNotification.addEventListener('transitionend', () => {
-    //     dom.globalNotification.className = 'notification';
+    //     if (dom.globalNotification.getAttribute('aria-hidden') === 'true') {
+    //          dom.globalNotification.className = 'notification';
+    //     }
     // }, { once: true });
 }
 
+// --- Modals ---
 /**
- * ホーム画面のデッキリストUIを更新する
+ * モーダルダイアログを表示する
+ * @param {ModalOptions} options - モーダルの設定
  */
-function updateDeckListUI() {
-    if (!dom.deckList) {
-        console.warn("updateDeckListUI: Deck list element not found.");
+function showModal(options) {
+    const { title, content, buttons = [], size = 'md', onClose } = options;
+    if (!dom.modalOverlay || !dom.modalDialog || !dom.modalTitle || !dom.modalBody || !dom.modalFooter) {
+        console.error("Modal elements not found.");
         return;
     }
-    const deckList = dom.deckList;
-    deckList.innerHTML = '';
-    const deckIds = Object.keys(appState.allDecks);
+    appState.lastFocusedElement = document.activeElement; // Store focus
 
-    if (deckIds.length === 0) {
-        deckList.innerHTML = '<li class="no-decks-message">問題集がありません。<br>「新規問題集(JSON)を読み込む」からファイルを追加してください。</li>';
-        return;
+    dom.modalTitle.textContent = title;
+    dom.modalDialog.className = `modal-dialog modal-${size}`; // Set size class
+
+    // Set content
+    dom.modalBody.innerHTML = ''; // Clear previous content
+    if (typeof content === 'string') {
+        dom.modalBody.innerHTML = content; // Inject HTML string (use cautiously)
+    } else if (content instanceof HTMLElement) {
+        dom.modalBody.appendChild(content); // Append DOM element
     }
 
-    // Sort decks by lastStudied (descending), then by name (ascending)
-    deckIds.sort((a, b) => {
-        const deckA = appState.allDecks[a];
-        const deckB = appState.allDecks[b];
-        const lastStudiedA = deckA?.lastStudied || 0;
-        const lastStudiedB = deckB?.lastStudied || 0;
-        if (lastStudiedA !== lastStudiedB) {
-            return lastStudiedB - lastStudiedA; // Newer first
-        }
-        // Use localeCompare for proper Japanese sorting
-        return (deckA?.name || '').localeCompare(deckB?.name || '', 'ja');
-    });
-
-    const fragment = document.createDocumentFragment();
-    deckIds.forEach(deckId => {
-        const deck = appState.allDecks[deckId];
-        if (!deck) return; // Should not happen if repair works
-
-        const li = document.createElement('li');
-        li.dataset.deckId = deckId;
-        li.classList.toggle('active-deck', deckId === appState.currentDeckId);
-        li.setAttribute('role', 'button');
-        li.setAttribute('tabindex', '0'); // Make focusable
-        li.setAttribute('aria-label', `問題集 ${deck.name || '名称未設定'} を選択または操作`);
-        li.setAttribute('aria-selected', deckId === appState.currentDeckId); // Indicate selection state
-
-        // Info Div (Grows)
-        const infoDiv = document.createElement('div');
-        infoDiv.classList.add('deck-info'); // Added class for potential styling
-
-        const nameSpan = document.createElement('span');
-        nameSpan.classList.add('deck-name'); // Added class
-        nameSpan.textContent = `${deck.name || '名称未設定'} (${deck.questions?.length || 0}問)`;
-
-        const historySpan = document.createElement('span');
-        historySpan.classList.add('deck-history'); // Added class
-        const lastStudiedText = deck.lastStudied ? `最終学習: ${formatDate(deck.lastStudied)}` : '未学習';
-        const totalAnswered = (deck.totalCorrect || 0) + (deck.totalIncorrect || 0);
-        const accuracy = totalAnswered > 0 ? Math.round(((deck.totalCorrect || 0) / totalAnswered) * 100) : -1;
-        const accuracyText = accuracy >= 0 ? `正答率: ${accuracy}%` : 'データなし';
-        historySpan.textContent = `${lastStudiedText} / ${accuracyText}`;
-
-        infoDiv.appendChild(nameSpan);
-        infoDiv.appendChild(historySpan);
-
-        // Actions Div (Shrinks)
-        const actionsDiv = document.createElement('div');
-        actionsDiv.classList.add('deck-actions');
-
-        const selectButton = document.createElement('button');
-        selectButton.innerHTML = '<i class="fas fa-check-circle" aria-hidden="true"></i> 選択';
-        selectButton.type = 'button';
-        selectButton.classList.add('button', 'small', 'primary', 'select-deck');
-        selectButton.dataset.deckId = deckId;
-        selectButton.disabled = (deckId === appState.currentDeckId);
-        selectButton.setAttribute('aria-label', `問題集 ${deck.name || '名称未設定'} を選択`);
-        if (deckId === appState.currentDeckId) {
-            selectButton.setAttribute('aria-pressed', 'true');
-        }
-
-        const deleteButton = document.createElement('button');
-        deleteButton.innerHTML = '<i class="fas fa-trash-alt" aria-hidden="true"></i> 削除';
-        deleteButton.type = 'button';
-        deleteButton.classList.add('button', 'small', 'danger', 'delete-deck');
-        deleteButton.dataset.deckId = deckId;
-        deleteButton.setAttribute('aria-label', `問題集 ${deck.name || '名称未設定'} を削除`);
-
-        actionsDiv.appendChild(selectButton);
-        actionsDiv.appendChild(deleteButton);
-
-        li.appendChild(infoDiv);
-        li.appendChild(actionsDiv);
-        fragment.appendChild(li);
-    });
-
-    deckList.appendChild(fragment);
-}
-
-/**
- * ホーム画面上部の「現在の問題集」情報とフィルターオプション表示を更新する
- */
-function updateTopScreenDisplay() {
-    const deckSelected = !!appState.currentDeckId && !!appState.allDecks[appState.currentDeckId];
-    const currentDeck = deckSelected ? appState.allDecks[appState.currentDeckId] : null;
-
-    // Update Text Content Safely
-    const updateText = (element, text) => { if (element) element.textContent = text; };
-
-    updateText(dom.currentDeckName, deckSelected ? (currentDeck.name || '名称未設定') : '未選択');
-    updateText(dom.totalQuestions, deckSelected ? (currentDeck.questions?.length ?? 0) : '0');
-    updateText(dom.currentDeckLastStudied, deckSelected && currentDeck.lastStudied ? formatDate(currentDeck.lastStudied) : '-');
-
-    if (dom.currentDeckAccuracy) {
-        let accuracyText = '-';
-        if (deckSelected) {
-            const totalCorrect = currentDeck.totalCorrect || 0;
-            const totalIncorrect = currentDeck.totalIncorrect || 0;
-            const totalAnswered = totalCorrect + totalIncorrect;
-            if (totalAnswered > 0) {
-                const accuracy = Math.round((totalCorrect / totalAnswered) * 100);
-                accuracyText = `${accuracy}% (${totalCorrect}/${totalAnswered})`;
-            } else {
-                accuracyText = 'データなし';
-            }
-        }
-        dom.currentDeckAccuracy.textContent = accuracyText;
-    }
-
-    // Toggle Filter Options Display
-    if (dom.studyFilterOptions) {
-        dom.studyFilterOptions.style.display = deckSelected ? 'block' : 'none';
-        // Ensure related elements are also handled if needed (e.g., aria-expanded)
-    }
-
-    // Update Threshold Display
-    if (dom.lowAccuracyThresholdDisplayFilter) {
-         dom.lowAccuracyThresholdDisplayFilter.textContent = appState.settings.lowAccuracyThreshold;
-    }
-
-    // Update Filtered Count and Button States
-    if (deckSelected) {
-        updateFilteredQuestionCount(); // This will also call updateStudyButtonsState
+    // Set footer buttons
+    dom.modalFooter.innerHTML = ''; // Clear previous buttons
+    if (buttons.length > 0) {
+        buttons.forEach(btnConfig => {
+            const button = document.createElement('button');
+            button.id = btnConfig.id;
+            button.type = 'button';
+            button.innerHTML = btnConfig.text; // Allow HTML in button text
+            button.className = `button ${btnConfig.class || 'secondary'}`;
+            button.disabled = btnConfig.disabled || false;
+            button.onclick = () => { // Use onclick for simplicity here
+                if (btnConfig.onClick) btnConfig.onClick();
+                // By default, close modal unless onClick explicitly prevents it?
+                // For now, assume onClick handles closing if needed.
+                // closeModal();
+            };
+            dom.modalFooter.appendChild(button);
+        });
+        dom.modalFooter.style.display = 'flex';
     } else {
-        updateText(dom.filteredQuestionCount, ''); // Clear count if no deck
-        updateStudyButtonsState(); // Update button state directly
+        dom.modalFooter.style.display = 'none'; // Hide footer if no buttons
     }
 
-    // Update Reset History Button State
-    if (dom.resetHistoryButton) {
-        let hasHistory = false;
-        if (deckSelected) {
-            hasHistory = !!currentDeck.lastStudied ||
-                         (currentDeck.totalCorrect ?? 0) > 0 ||
-                         (currentDeck.totalIncorrect ?? 0) > 0 ||
-                         (currentDeck.sessionHistory?.length ?? 0) > 0 ||
-                         (currentDeck.questions?.some(q => q.history?.length > 0) ?? false);
+    // Attach close handler
+    dom.modalCloseButton.onclick = () => closeModal(onClose); // Header close button
+    dom.modalOverlay.onclick = (event) => { // Overlay click
+        if (event.target === dom.modalOverlay) { // Ensure click is on overlay itself
+             closeModal(onClose);
         }
-        dom.resetHistoryButton.disabled = !hasHistory;
-        dom.resetHistoryButton.title = hasHistory
-            ? "選択中の問題集の全学習履歴（解答履歴、評価、累計、セッション）をリセットします"
-            : (deckSelected ? "リセットする履歴がありません" : "問題集を選択してください");
-        // Consider adding aria-disabled based on the 'disabled' state
-        dom.resetHistoryButton.setAttribute('aria-disabled', String(!hasHistory));
-    }
+    };
+    // ESC key handling (added in global listeners)
+
+    dom.modalOverlay.style.display = 'flex'; // Trigger fade-in animation
+    dom.modalDialog.setAttribute('aria-labelledby', 'modal-title'); // Set label
+    dom.modalDialog.focus(); // Focus the dialog itself initially
+    appState.isModalOpen = true;
 }
 
-/**
- * ホーム画面の「学習開始」ボタンの有効/無効状態とツールチップを更新する
- */
-function updateStudyButtonsState() {
-    if (!dom.startStudyButton) return;
+/** モーダルダイアログを閉じる */
+function closeModal(onCloseCallback) {
+     if (!dom.modalOverlay) return;
+     if (onCloseCallback && typeof onCloseCallback === 'function') {
+         onCloseCallback(); // Execute callback before closing
+     }
+     dom.modalOverlay.style.display = 'none'; // Trigger fade-out animation
+     appState.isModalOpen = false;
+     // Return focus to the element that opened the modal
+     if (appState.lastFocusedElement && typeof appState.lastFocusedElement.focus === 'function') {
+         appState.lastFocusedElement.focus();
+     }
+     appState.lastFocusedElement = null;
+}
 
-    const deckSelected = !!appState.currentDeckId && !!appState.allDecks[appState.currentDeckId];
-    let hasQuestionsToStudy = false;
-    let filteredCount = 0;
-    let filterLabel = ""; // Initialize filterLabel
 
-    if (deckSelected) {
-        try {
-            const filteredList = getFilteredStudyList();
-            filteredCount = filteredList.length;
-            hasQuestionsToStudy = filteredCount > 0;
+// --- UI Updates (General) ---
+/** 初期設定値をUIコントロールに反映 */
+function applyInitialSettingsToUI() {
+    loadSettingsToUI(); // Load current settings state to Settings screen
 
-            // Get filter label for tooltip
-            const selectedRadio = document.querySelector('input[name="study-filter"]:checked');
-            if (selectedRadio) {
-                 const labelElement = document.querySelector(`label[for="${selectedRadio.id}"]`);
-                 if(labelElement) {
-                     // Extract text, removing icon if present
-                     const labelText = labelElement.querySelector('span')?.textContent || labelElement.textContent;
-                     filterLabel = `「${labelText.trim()}」フィルター`;
-                 } else {
-                     filterLabel = "選択されたフィルター条件";
+    // Update Dashboard Filter Threshold display spans
+    if (dom.dashboardFilterThresholdLow) dom.dashboardFilterThresholdLow.textContent = DASHBOARD_ACCURACY_THRESHOLDS.LOW;
+    if (dom.dashboardFilterThresholdMediumLow) dom.dashboardFilterThresholdMediumLow.textContent = DASHBOARD_ACCURACY_THRESHOLDS.LOW + 1;
+    if (dom.dashboardFilterThresholdMediumHigh) dom.dashboardFilterThresholdMediumHigh.textContent = DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM;
+    if (dom.dashboardFilterThresholdHigh) dom.dashboardFilterThresholdHigh.textContent = DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM + 1;
+
+    // Update other display values based on constants
+    if (dom.dashboardTrendsSessionsCount) dom.dashboardTrendsSessionsCount.textContent = DASHBOARD_TREND_SESSIONS;
+    if (dom.detailHistoryCount) dom.detailHistoryCount.textContent = MAX_RECENT_HISTORY; // Now updated in JS for flexibility
+}
+
+/** 指定IDの画面に遷移し、関連するUI状態を更新 */
+function navigateToScreen(screenId, isInitialLoad = false) {
+    if (!dom.screens || !dom.navButtons) {
+        console.error("Navigation failed: Screen or Nav elements missing.");
+        showNotification("画面遷移エラー", "error");
+        return;
+    }
+    const targetScreen = document.getElementById(screenId);
+    if (!targetScreen || !targetScreen.classList.contains('screen')) {
+        console.error(`Navigation failed: Screen #${screenId} not found or invalid.`);
+        showNotification(`指定画面(#${screenId})が見つかりません。ホームを表示します。`, "warning");
+        screenId = 'home-screen'; // Fallback to home
+        if (!document.getElementById(screenId)) return; // Home also missing? Abort.
+    }
+
+    // Don't navigate if already on the target screen
+    if (!isInitialLoad && screenId === appState.activeScreen) {
+        console.log(`Already on screen: ${screenId}`);
+        return;
+    }
+
+    console.log(`Navigating to screen: ${screenId}`);
+    const previousScreen = appState.activeScreen;
+    appState.activeScreen = screenId;
+    saveData(LS_KEYS.LAST_SCREEN, screenId); // Remember last screen
+
+    // --- Transition Logic ---
+    dom.screens.forEach(screen => screen.classList.remove('active'));
+    document.getElementById(screenId).classList.add('active');
+
+    // --- Navigation Button Update ---
+    dom.navButtons.forEach(button => {
+        const isActive = button.dataset.target === screenId;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-current', isActive ? 'page' : 'false');
+    });
+
+    // --- Screen Specific Actions ---
+    switch (screenId) {
+        case 'home-screen':
+             updateHomeUI(); // Refresh home screen display
+             // Focus relevant element on home (e.g., list or start button)
+             setTimeout(() => dom.deckList?.focus(), 50);
+            break;
+        case 'dashboard-screen':
+            populateDashboardDeckSelect();
+            if (!appState.currentDashboardDeckId && Object.keys(appState.allDecks).length > 0) {
+                 // Auto-select first deck if none is selected
+                 const firstDeckId = Object.keys(appState.allDecks).sort((a,b) => (appState.allDecks[a].name||'').localeCompare(appState.allDecks[b].name||''))[0];
+                 if (firstDeckId) {
+                    console.log("Auto-selecting first deck for dashboard:", firstDeckId);
+                     appState.currentDashboardDeckId = firstDeckId;
+                     if(dom.dashboardDeckSelect) dom.dashboardDeckSelect.value = firstDeckId;
+                     resetDashboardFiltersAndState(false); // Don't reset deck ID
                  }
-            } else {
-                filterLabel = "全問"; // Default if somehow no radio is checked
             }
-
-        } catch (error) {
-            console.error("Error getting filtered study list count:", error);
-            hasQuestionsToStudy = false;
-        }
+            renderDashboard(); // Always re-render dashboard on navigate
+            setTimeout(() => dom.dashboardDeckSelect?.focus(), 50);
+            break;
+        case 'settings-screen':
+            loadSettingsToUI(); // Ensure settings UI reflects current state
+             setTimeout(() => dom.settingShuffleOptions?.focus(), 50);
+            break;
+         case 'prompt-guide-screen':
+            // Maybe update prompt placeholders based on current deck? (optional)
+            updatePromptPlaceholders();
+             setTimeout(() => dom.promptFieldTopic?.focus(), 50);
+            break;
+        case 'study-screen': // Navigation TO study screen only happens via startStudy()
+            // Focus the first element (e.g., question text or first option)
+            setTimeout(() => dom.optionsButtonsContainer?.querySelector('.option-button')?.focus(), 50);
+            break;
     }
 
-    dom.startStudyButton.disabled = !hasQuestionsToStudy;
-    dom.startStudyButton.setAttribute('aria-disabled', String(!hasQuestionsToStudy));
+    // --- Cleanup based on leaving a screen ---
+     if (previousScreen === 'dashboard-screen' && screenId !== 'dashboard-screen') {
+         // No specific cleanup needed currently for dashboard exit
+     }
+     // Resetting study state is now handled by `confirmQuitStudy` or completion flow
 
-    // Update Tooltip
-    if (!deckSelected) {
-        dom.startStudyButton.title = "学習を開始する問題集を選択してください。";
-    } else if (!hasQuestionsToStudy) {
-        dom.startStudyButton.title = `${filterLabel}に該当する問題がありません。`;
-    } else {
-        dom.startStudyButton.title = `${filterLabel} (${filteredCount}問) で学習を開始します`;
+
+    // Scroll to top (unless navigating within the same page potentially?)
+    if (!isInitialLoad) {
+         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 }
 
 
 // ====================================================================
-// ナビゲーション制御 (Navigation Control)
+// イベントリスナー設定 (Event Listener Setup)
 // ====================================================================
 
+/** アプリケーション全体のグローバルイベントリスナーを設定 */
+function setupGlobalEventListeners() {
+     safeAddEventListener(window, 'resize', handleResize, { passive: true });
+     safeAddEventListener(window, 'keydown', handleGlobalKeyDown);
+     safeAddEventListener(systemThemeMediaQuery, 'change', handleSystemThemeChange);
+     // Add listeners for FileReader if needed globally, or locally when used
+}
+
+/** アプリケーションの各画面要素に固有のイベントリスナーを設定 */
+function setupScreenEventListeners() {
+    // Header & Nav
+    safeAddEventListener(dom.appHeaderTitle, 'click', () => navigateToHome());
+    safeAddEventListener(dom.themeToggleButton, 'click', toggleTheme);
+     if (dom.navButtons) {
+         dom.navButtons.forEach(button => safeAddEventListener(button, 'click', handleNavClick));
+     }
+
+    // Notification Close
+    safeAddEventListener(dom.notificationCloseButton, 'click', hideNotification);
+
+    // --- Home Screen ---
+    safeAddEventListener(dom.jsonFileInput, 'change', handleFileSelect);
+     safeAddEventListener(dom.deckSearchInput, 'input', debounce(handleDeckSearchInput, DEBOUNCE_DELAY));
+     safeAddEventListener(dom.deckSortSelect, 'change', handleDeckSortChange);
+    safeAddEventListener(dom.deckList, 'click', handleDeckListClick);
+    safeAddEventListener(dom.deckList, 'keydown', handleDeckListKeydown);
+     safeAddEventListener(dom.deckListPagination, 'click', handleDeckPaginationClick);
+     safeAddEventListener(dom.resetHistoryButton, 'click', handleResetHistoryClick); // Confirmation inside handler
+    safeAddEventListener(dom.startStudyButton, 'click', startStudy);
+    if (dom.studyFilterRadios) {
+        dom.studyFilterRadios.forEach(radio => safeAddEventListener(radio, 'change', handleStudyFilterChange));
+    }
+
+    // --- Study Screen ---
+     safeAddEventListener(dom.optionsButtonsContainer, 'click', handleOptionButtonClick);
+    safeAddEventListener(dom.quitStudyHeaderButton, 'click', () => confirmQuitStudy(true)); // User initiated quit from header
+    safeAddEventListener(dom.retryButton, 'click', retryCurrentQuestion);
+    if (dom.evalButtons) {
+        dom.evalButtons.forEach(button => safeAddEventListener(button, 'click', handleEvaluation));
+    }
+     safeAddEventListener(dom.backToHomeButton, 'click', navigateToHome); // From completion
+
+    // --- Dashboard Screen ---
+    safeAddEventListener(dom.dashboardDeckSelect, 'change', handleDashboardDeckChange);
+     safeAddEventListener(dom.dashboardControlsToggle, 'click', toggleDashboardControls); // Mobile toggle
+    safeAddEventListener(dom.dashboardFilterAccuracy, 'change', handleDashboardFilterChange);
+    safeAddEventListener(dom.dashboardSearchQuery, 'input', debounce(handleDashboardSearchInput, DEBOUNCE_DELAY));
+    safeAddEventListener(dom.dashboardSearchQuery, 'keydown', (e) => { if (e.key === 'Enter') applyDashboardSearch(); });
+    safeAddEventListener(dom.dashboardSearchButton, 'click', applyDashboardSearch);
+    safeAddEventListener(dom.dashboardSearchClear, 'click', clearDashboardSearch);
+    safeAddEventListener(dom.dashboardSortOrder, 'change', handleDashboardSortChange);
+     safeAddEventListener(dom.dashboardItemsPerPage, 'change', handleDashboardItemsPerPageChange);
+    safeAddEventListener(dom.viewModeList, 'click', () => setDashboardViewMode('list'));
+    safeAddEventListener(dom.viewModeChart, 'click', () => setDashboardViewMode('chart'));
+    safeAddEventListener(dom.questionAccuracyList, 'click', handleQuestionItemClick);
+    safeAddEventListener(dom.questionAccuracyList, 'keydown', handleQuestionItemKeydown);
+    safeAddEventListener(dom.questionPagination, 'click', handleDashboardPaginationClick);
+     // Modal related: Close button handled in showModal, ESC handled globally
+
+    // --- Settings Screen ---
+     safeAddEventListener(dom.settingTheme, 'change', handleThemeSettingChange);
+     safeAddEventListener(dom.settingLowAccuracyThreshold, 'change', handleSettingThresholdChange); // Validate on change/blur
+     safeAddEventListener(dom.settingShuffleOptions, 'change', handleSettingShuffleChange); // Update state immediately? No, wait for save.
+     safeAddEventListener(dom.saveSettingsButton, 'click', saveSettings);
+     safeAddEventListener(dom.exportDataButton, 'click', exportAllData);
+     safeAddEventListener(dom.importDataInput, 'change', handleImportFileSelect);
+     safeAddEventListener(dom.resetAllDataButton, 'click', handleResetAllDataClick); // Confirmation inside
+
+    // --- AI Prompt Guide Screen ---
+     // Listen to changes in customization fields to update placeholder previews? (optional)
+     safeAddEventListener(dom.promptFieldTopic, 'input', updatePromptPlaceholders);
+     safeAddEventListener(dom.promptFieldCount, 'input', updatePromptPlaceholders);
+     safeAddEventListener(dom.promptFieldLevel, 'input', updatePromptPlaceholders);
+     safeAddEventListener(dom.copyPromptButton, 'click', copyPromptToClipboard);
+     safeAddEventListener(dom.jsonCheckInput, 'input', debounce(handleJsonCheckInput, DEBOUNCE_DELAY));
+     safeAddEventListener(dom.jsonCheckButton, 'click', checkJsonFormat);
+
+
+    console.log("Event listeners setup complete.");
+}
+
 /**
- * ナビゲーションボタンクリック時のハンドラ
- * @param {MouseEvent} event - クリックイベント
+ * 安全にイベントリスナーを追加するヘルパー関数
+ * @param {EventTarget} element - 対象要素
+ * @param {string} event - イベント名
+ * @param {Function} handler - ハンドラ関数
+ * @param {boolean | AddEventListenerOptions} [options={}] - オプション
  */
+function safeAddEventListener(element, event, handler, options = {}) {
+    if (element && typeof element.addEventListener === 'function') {
+        element.addEventListener(event, handler, options);
+    } else {
+        console.warn(`Failed to add event listener: Element not found or invalid for event "${event}".`);
+    }
+}
+
+/**
+ * デバウンス関数: 指定時間内に連続して発生したイベントは最後のものだけ実行
+ * @param {Function} func - 実行する関数
+ * @param {number} wait - 遅延時間 (ms)
+ * @returns {Function} デバウンスされた関数
+ */
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func.apply(this, args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+
+// ====================================================================
+// グローバルイベントハンドラ
+// ====================================================================
+
+/** ウィンドウリサイズ時のハンドラ */
+function handleResize() {
+     clearTimeout(resizeDebounceTimer);
+     resizeDebounceTimer = setTimeout(() => {
+         console.log("Window resized");
+         // Example: Adjust layout based on resize if CSS alone is not enough
+         // Or: Recalculate elements positions/sizes if needed dynamically
+         toggleDashboardControlsBasedOnSize(); // Ensure controls collapse state is correct
+     }, MIN_DEBOUNCE_DELAY); // Use shorter delay for resize responsiveness
+}
+
+/** グローバルなキーダウンイベントハンドラ (ESCでモーダル閉じるなど) */
+function handleGlobalKeyDown(event) {
+    if (event.key === 'Escape') {
+         if (appState.isModalOpen) {
+             // Find the currently open modal (assuming only one for now)
+             const modal = document.querySelector('.modal-overlay[style*="display: flex;"]');
+             if (modal) {
+                 const closeButton = modal.querySelector('.modal-close-button');
+                 closeModal(closeButton?.onclick); // Attempt to use existing close logic/callback
+             }
+         }
+        // else if (appState.isStudyActive) { // Option: ESC to trigger Quit confirmation
+        //     confirmQuitStudy(true);
+        // }
+    }
+     // Add other global shortcuts if needed
+     // e.g., Ctrl+S for saving settings? (Need to prevent browser default)
+}
+
+// ====================================================================
+// テーマ関連処理
+// ====================================================================
+
+/** テーマ切り替えボタンクリック時のハンドラ */
+function toggleTheme() {
+     const currentAppliedTheme = getCurrentAppliedTheme();
+     const nextTheme = currentAppliedTheme === 'light' ? 'dark' : 'light';
+     // When toggling manually, store the explicit choice, not 'system'
+     applyTheme(nextTheme);
+     saveSettings(); // Persist the manually selected theme
+}
+
+/** 設定画面のテーマ選択変更時のハンドラ */
+function handleThemeSettingChange(event) {
+     const selectedTheme = event.target.value;
+     applyTheme(selectedTheme);
+     // No need to call saveSettings() here, rely on main save button
+     showNotification("テーマ設定を変更しました。右下の「設定を保存」を押してください。", "info", 3000);
+     setSettingsUnsavedStatus(true);
+}
+
+
+// ====================================================================
+// ナビゲーションと画面共通処理
+// ====================================================================
+
+/** ヘッダータイトルクリックやホームボタンでホームに戻る */
+function navigateToHome() {
+     if (appState.isStudyActive) {
+         confirmQuitStudy(true, 'home-screen'); // Show confirm, navigate if ok
+     } else {
+         navigateToScreen('home-screen');
+     }
+}
+
+/** ナビゲーションボタンクリック時のハンドラ */
 function handleNavClick(event) {
     const targetButton = event.target.closest('.nav-button');
-    if (!targetButton || targetButton.disabled) return; // Ignore disabled buttons
-
+    if (!targetButton || targetButton.disabled) return;
     const targetScreenId = targetButton.dataset.target;
-    if (targetScreenId) {
-         // ★ 学習画面からの遷移時は確認
-        if (appState.activeScreen === 'study-screen' && targetScreenId !== 'study-screen') {
-            if (!confirmQuitStudy(false)) { // confirmQuitStudy returns true if quit proceeds
-                return; // User cancelled quit
-            }
-            // If quit proceeds, navigateToScreen will be called after cleanup
-        } else {
-            navigateToScreen(targetScreenId);
-        }
+    if (!targetScreenId) return;
+
+    if (appState.isStudyActive && targetScreenId !== 'study-screen') {
+        confirmQuitStudy(true, targetScreenId); // Pass target screen
     } else {
-        console.warn("Navigation button clicked, but data-target attribute is missing:", targetButton);
+        navigateToScreen(targetScreenId);
     }
 }
 
-/**
- * 指定されたIDの画面に遷移する
- * @param {string} screenId - 遷移先の画面要素のID
- */
-function navigateToScreen(screenId) {
-    if (!dom.screens || !dom.navButtons) {
-        console.error("Cannot navigate: Screen elements or navigation buttons not found in DOM cache.");
-        showNotification("画面遷移に必要な要素が見つかりません。", "error");
-        return;
-    }
-
-    // Hide all screens first
-    dom.screens.forEach(screen => screen.classList.remove('active'));
-
-    const targetScreenElement = document.getElementById(screenId);
-    if (targetScreenElement && targetScreenElement.classList.contains('screen')) {
-        // Activate target screen
-        targetScreenElement.classList.add('active');
-        appState.activeScreen = screenId;
-        console.log(`Navigated to screen: ${screenId}`);
-
-        // Update navigation button states
-        dom.navButtons.forEach(button => {
-            const isActive = button.dataset.target === screenId;
-            button.classList.toggle('active', isActive);
-            button.setAttribute('aria-current', isActive ? 'page' : 'false'); // Use 'false' instead of removing
-        });
-
-        // Screen-specific actions on navigation
-        switch (screenId) {
-            case 'dashboard-screen':
-                populateDashboardDeckSelect(); // Ensure select is up-to-date
-                if (appState.currentDashboardDeckId) {
-                    renderDashboard(); // Render if a deck is selected
-                } else {
-                    // Show "no deck selected" message if needed
-                    if (dom.dashboardContent) dom.dashboardContent.style.display = 'none';
-                    if (dom.dashboardNoDeckMessage) dom.dashboardNoDeckMessage.style.display = 'block';
-                }
-                break;
-            case 'settings-screen':
-                loadSettingsToUI(); // Load current settings into UI
-                break;
-            case 'home-screen':
-                 // Ensure home screen UI is up-to-date
-                 updateDeckListUI();
-                 updateTopScreenDisplay();
-                 break;
-            // No specific action needed for study-screen or prompt-guide on navigation TO them
-        }
-
-        // Clean up state if leaving certain screens
-        if (screenId !== 'dashboard-screen') {
-            closeQuestionDetailView(); // Close detail view if leaving dashboard
-        }
-        // ★ Moved study state reset logic into confirmQuitStudy
-        // if (screenId !== 'study-screen' && appState.currentQuestionIndex !== -1) {
-        //     console.warn("Navigated away from active study screen without explicit quit. Resetting study list/index.");
-        //     // resetStudyState is handled by confirmQuitStudy or completion
-        //      // Reset UI elements related to study state
-        //      if(dom.studyCard) dom.studyCard.style.display = 'block'; // Show card
-        //      if(dom.evaluationControls) dom.evaluationControls.style.display = 'none'; // Hide eval
-        //      if(dom.answerArea) dom.answerArea.style.display = 'none'; // Hide answer
-        //      if(dom.studyCompleteMessage) dom.studyCompleteMessage.style.display = 'none'; // Hide completion
-        //      if(dom.quitStudyButton) dom.quitStudyButton.style.display = 'none'; // Hide quit button
-        // }
-
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-
-    } else {
-        console.error(`Navigation failed: Screen with ID "${screenId}" not found or is not a valid screen element.`);
-        showNotification(`画面 "${screenId}" が見つかりません。ホーム画面を表示します。`, "error");
-        if (screenId !== 'home-screen') { // Avoid infinite loop if home is missing
-            navigateToScreen('home-screen');
-        }
-    }
-}
 
 // ====================================================================
-// ファイル操作 (File Handling)
+// ファイル操作 (JSON Deck Handling, Import/Export)
 // ====================================================================
 
-/**
- * ファイル選択インプットが変更されたときのハンドラ
- * @param {Event} event - input要素のchangeイベント
- */
+/** ファイル選択input変更時のハンドラ（新規デッキ読み込み） */
 function handleFileSelect(event) {
     const fileInput = event.target;
-    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-        console.log("No file selected.");
-        return; // No file selected or input missing
-    }
+    handleFileUpload(fileInput, processNewDeckFile);
+}
+
+/** インポート用ファイル選択input変更時のハンドラ */
+function handleImportFileSelect(event) {
+     const fileInput = event.target;
+     handleFileUpload(fileInput, processImportDataFile, dom.importStatus); // Pass status element
+}
+
+/** 共通ファイルアップロード処理 */
+function handleFileUpload(fileInput, processFunction, statusElement = dom.loadStatus) {
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) return;
     const file = fileInput.files[0];
-    const statusElement = dom.loadStatus;
 
-    // Reset status message
-    if (statusElement) {
-         statusElement.textContent = "";
-         statusElement.className = 'status-message';
+    updateStatusMessage(statusElement, "", "info"); // Clear previous status
+
+    if (!file.type || (!file.type.includes('json') && !file.name.toLowerCase().endsWith('.json'))) {
+        updateStatusMessage(statusElement, "JSONファイルを選択してください", "warning");
+        showNotification('ファイル形式エラー: JSONファイル (.json) を選択してください。', 'warning');
+        fileInput.value = ''; // Clear input
+        return;
     }
-
-    // Basic file type check
-    if (!file.type || (file.type !== 'application/json' && !file.name.toLowerCase().endsWith('.json'))) {
-        showNotification('JSONファイル (.json) を選択してください。', 'warning');
-        if(statusElement) {
-            statusElement.textContent = "JSONファイルを選択してください";
-            statusElement.className = 'status-message error';
-        }
-        fileInput.value = ''; // Clear the input
+     if (file.size > 5 * 1024 * 1024) { // Limit file size (e.g., 5MB)
+        updateStatusMessage(statusElement, "ファイルサイズが大きすぎます (最大5MB)", "warning");
+        showNotification('ファイルサイズエラー: ファイルが大きすぎます (最大5MB)。', 'warning');
+        fileInput.value = '';
         return;
     }
 
-    // Show loading state
-    if(statusElement) {
-        statusElement.textContent = "読み込み中...";
-        statusElement.className = 'status-message info';
-    }
-    showLoadingOverlay(true);
+    updateStatusMessage(statusElement, "読み込み中...", "info");
+    updateLoadingOverlay(true, `ファイル (${file.name}) 読み込み中...`);
 
-    const reader = new FileReader();
+     // Reset file reader state (necessary?) and assign handlers
+     appState.fileReader = new FileReader(); // Create new instance? Maybe ok to reuse.
+    appState.fileReader.onload = (e) => {
+         processFunction(e.target?.result, file.name, statusElement);
+         fileInput.value = ''; // Clear after processing
+         updateLoadingOverlay(false);
+         clearStatusMessageAfterDelay(statusElement, 5000);
+    };
+    appState.fileReader.onerror = (e) => {
+         console.error("File reading error:", appState.fileReader.error);
+         updateStatusMessage(statusElement, "ファイル読み取りエラー", "error");
+         showNotification(`ファイルの読み取り中にエラーが発生しました: ${appState.fileReader.error}`, "error");
+         fileInput.value = '';
+         updateLoadingOverlay(false);
+    };
+     appState.fileReader.onabort = () => {
+         console.log("File reading aborted.");
+         updateStatusMessage(statusElement, "読み込み中断", "info");
+         updateLoadingOverlay(false);
+     };
 
-    reader.onload = (e) => {
-        let newDeckId = null; // Track added deck ID for potential rollback
+    appState.fileReader.readAsText(file);
+}
+
+/** 読み込んだ新規デッキJSONファイルを処理 */
+function processNewDeckFile(content, fileName, statusElement) {
+    let newDeckId = null;
+    try {
+        if (typeof content !== 'string' || content.trim() === '') {
+             throw new Error("ファイル内容が空または不正です。");
+        }
+        let data;
         try {
-            const content = e.target?.result;
-            if (typeof content !== 'string') {
-                 throw new Error("ファイルの内容を文字列として読み取れませんでした。");
-            }
-            if (content.trim() === '') {
-                 throw new Error("ファイルが空です。");
-            }
+             data = JSON.parse(content);
+        } catch (parseError) { throw new Error(`JSON解析失敗: ${parseError.message}`); }
 
-            let data;
-            try {
-                 data = JSON.parse(content);
-            } catch (parseError) {
-                console.error("JSON parsing error:", parseError);
-                throw new Error(`JSONの解析に失敗しました。形式を確認してください。 詳細: ${parseError.message}`);
-            }
-
-            const validationResult = validateJsonData(data);
-            if (!validationResult.isValid) {
-                throw new Error(`JSONデータの形式が不正です: ${validationResult.message}`);
-            }
-
-            // Generate unique deck name if collision occurs
-            let deckName = file.name.replace(/\.json$/i, '');
-            let originalDeckName = deckName;
-            let counter = 1;
-            while (Object.values(appState.allDecks).some(d => d.name === deckName)) {
-                counter++;
-                deckName = `${originalDeckName} (${counter})`;
-            }
-
-            // Create unique deck ID
-            const deckId = `deck_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-            newDeckId = deckId; // Store ID for potential rollback
-
-            const newDeck = {
-                id: deckId,
-                name: deckName,
-                questions: validationResult.questions.map((q, index) => ({
-                    // Generate unique question ID including deck ID and random element
-                    id: `q_${deckId}_${index}_${Date.now().toString(36).slice(-4)}_${Math.random().toString(36).substring(2, 7)}`,
-                    question: q.question,
-                    options: q.options,
-                    correctAnswer: q.correctAnswer,
-                    explanation: q.explanation || '', // Ensure explanation is string
-                    history: [] // Initialize empty history
-                })),
-                lastStudied: null,
-                totalCorrect: 0,
-                totalIncorrect: 0,
-                sessionHistory: []
-            };
-
-            // Add to state *before* saving
-            appState.allDecks[deckId] = newDeck;
-
-            // Attempt to save the updated decks object
-            if (!saveData(LS_KEYS.DECKS, appState.allDecks)) {
-                // Rollback if save fails
-                delete appState.allDecks[deckId];
-                throw new Error("LocalStorageへの保存に失敗したため、問題集の追加をキャンセルしました。");
-            }
-
-            // Success
-            console.log("New deck added:", newDeck);
-            if(statusElement) {
-                statusElement.textContent = `読み込み成功: ${deckName} (${newDeck.questions.length}問)`;
-                statusElement.className = 'status-message success';
-            }
-            showNotification(`問題集「${deckName}」(${newDeck.questions.length}問) を正常に読み込みました。`, 'success');
-
-            // Update UI and select the new deck
-            updateDeckListUI();
-            populateDashboardDeckSelect();
-            selectDeck(deckId); // Select the newly added deck
-
-        } catch (error) {
-            console.error("Error processing JSON file:", error);
-            if(statusElement) {
-                statusElement.textContent = `読み込みエラー: ${error.message}`;
-                statusElement.className = 'status-message error';
-            }
-            showNotification(`ファイル読み込みエラー: ${error.message}`, 'error', 8000);
-            // Ensure rollback if error occurred after adding to state but before saving (handled in save check)
-            // If error occurred before adding to state, no rollback needed here.
-            if (newDeckId && !saveData(LS_KEYS.DECKS, appState.allDecks)) { // Double check save didn't happen on error
-                delete appState.allDecks[newDeckId]; // Rollback if state was modified
-            }
-        } finally {
-            showLoadingOverlay(false);
-            fileInput.value = ''; // Always clear file input
-            // Clear status message after a delay, unless it's an error
-            setTimeout(() => {
-                if(statusElement && !statusElement.classList.contains('error')) {
-                    statusElement.textContent = "";
-                    statusElement.className = 'status-message';
-                }
-            }, 5000);
+        const validationResult = validateDeckJsonData(data); // Use new validator
+        if (!validationResult.isValid) {
+            throw new Error(`JSON形式エラー: ${validationResult.message}`);
         }
-    };
 
-    reader.onerror = (e) => {
-        console.error("Error reading file:", reader.error);
-        if(statusElement) {
-            statusElement.textContent = "ファイル読み取りエラー";
-            statusElement.className = 'status-message error';
+        let baseName = fileName.replace(/\.json$/i, '');
+        const newDeck = createNewDeck(baseName, validationResult.questions);
+        newDeckId = newDeck.id;
+
+        // Save (Important: Must happen after adding to state in createNewDeck)
+        if (!saveData(LS_KEYS.DECKS, appState.allDecks)) {
+            delete appState.allDecks[newDeckId]; // Rollback state
+            throw new Error("LocalStorageへの保存に失敗しました。");
         }
-        showNotification("ファイルの読み取り中にエラーが発生しました。", "error");
-        fileInput.value = ''; // Clear the input
-        showLoadingOverlay(false);
-    };
 
-    reader.readAsText(file);
+        console.log("New deck added successfully:", newDeck);
+        updateStatusMessage(statusElement, `読み込み成功: ${newDeck.name} (${newDeck.questions.length}問)`, "success");
+        showNotification(`問題集「${newDeck.name}」(${newDeck.questions.length}問) を追加しました。`, 'success');
+
+        // Update UI
+         updateHomeUI(true); // Update list, counts etc. Force update even if not on home screen.
+        populateDashboardDeckSelect(); // Ensure dashboard dropdown is updated
+         selectDeck(newDeckId); // Select the new deck automatically
+
+    } catch (error) {
+        console.error("Error processing new deck file:", error);
+        updateStatusMessage(statusElement, `読込エラー: ${error.message}`, "error");
+        showNotification(`ファイル処理エラー: ${error.message}`, 'error', 8000);
+        // Ensure state consistency if error happened after creation but before save success
+        if (newDeckId && !localStorage.getItem(LS_KEYS.DECKS)?.includes(newDeckId)) {
+             delete appState.allDecks[newDeckId]; // Rollback if add succeeded but save failed
+        }
+    }
 }
 
 /**
- * 読み込んだJSONデータが期待される形式か検証する
- * @param {any} data - JSON.parse() でパースされたデータ
- * @returns {{isValid: boolean, message: string, questions: Array<{question: string, options: string[], correctAnswer: string, explanation: string}> | null}} 検証結果オブジェクト
+ * JSONデータが期待されるデッキ形式か検証する (複数問題対応)
+ * @param {any} data - JSON.parse() されたデータ
+ * @returns {{isValid: boolean, message: string, questions: QuestionData[] | null}} 検証結果
  */
-function validateJsonData(data) {
+function validateDeckJsonData(data) {
     if (!Array.isArray(data)) {
         return { isValid: false, message: "データが配列形式ではありません。", questions: null };
     }
@@ -1199,306 +1310,945 @@ function validateJsonData(data) {
     }
 
     const validatedQuestions = [];
+    const questionIds = new Set(); // Keep track of IDs for uniqueness validation if needed
+
     for (let i = 0; i < data.length; i++) {
-        const q = data[i];
-        const questionNum = i + 1;
+        const qData = data[i];
+        // Validate individual question structure - Reuse repair/validate function
+        const validatedQ = repairAndValidateQuestion(qData, 'import', i);
 
-        // Basic Structure Check
-        if (typeof q !== 'object' || q === null) {
-            return { isValid: false, message: `問題 ${questionNum}: データ形式がオブジェクトではありません。`, questions: null };
+        if (!validatedQ) {
+            // repairAndValidateQuestion logs the specific error, we just need to report overall failure
+             return { isValid: false, message: `問題 ${i + 1}: データ構造が不正です。詳細ログを確認してください。`, questions: null };
         }
 
-        // Question Text Validation
-        if (typeof q.question !== 'string' || q.question.trim() === '') {
-            return { isValid: false, message: `問題 ${questionNum}: 'question' (問題文) が存在しないか空です。`, questions: null };
-        }
-        const questionText = q.question.trim();
-
-        // Options Validation
-        if (!Array.isArray(q.options)) {
-             return { isValid: false, message: `問題 ${questionNum}: 'options' (選択肢) が配列ではありません。`, questions: null };
-        }
-        const trimmedOptions = q.options
-            .map(opt => (typeof opt === 'string' ? opt : String(opt)).trim()) // Ensure string and trim
-            .filter(opt => opt !== ''); // Remove empty options
-        if (trimmedOptions.length < 2) {
-             return { isValid: false, message: `問題 ${questionNum}: 有効な選択肢 ('options') が2つ未満です（空の選択肢は除外されます）。`, questions: null };
-        }
-
-        // Correct Answer Validation
-        if (typeof q.correctAnswer !== 'string' || q.correctAnswer.trim() === '') {
-            return { isValid: false, message: `問題 ${questionNum}: 'correctAnswer' (正解) が存在しないか空です。`, questions: null };
-        }
-        const trimmedCorrectAnswer = q.correctAnswer.trim();
-
-        // Check if Correct Answer is in Trimmed Options
-        if (!trimmedOptions.includes(trimmedCorrectAnswer)) {
-            const optionsString = trimmedOptions.map(opt => `"${opt}"`).join(', ');
-            return { isValid: false, message: `問題 ${questionNum}: 'correctAnswer' ("${trimmedCorrectAnswer}") が有効な 'options' [${optionsString}] 内に見つかりません。完全に一致する必要があります。`, questions: null };
-        }
-
-        // Explanation Validation (Optional)
-        let explanation = '';
-        if (q.explanation !== undefined && q.explanation !== null) {
-             if (typeof q.explanation !== 'string') {
-                  // Try to convert non-string explanation, but log a warning
-                  explanation = String(q.explanation).trim();
-                  console.warn(`問題 ${questionNum}: 'explanation' は文字列であるべきですが、型 ${typeof q.explanation} が検出されました。文字列に変換しました: "${explanation.substring(0,50)}..."`);
-             } else {
-                 explanation = q.explanation.trim();
+        // Optional: Validate uniqueness of IDs within the file if they are provided
+        if (qData.id) { // If an ID was originally provided in the file
+             if(questionIds.has(validatedQ.id)) {
+                  console.warn(`Duplicate question ID "${validatedQ.id}" found in import file at index ${i}. App will use internally generated unique IDs.`);
+                  // Don't stop the import, just warn. Will generate new unique ID anyway.
              }
+             questionIds.add(validatedQ.id);
         }
 
+        // We don't actually use the ID from the file directly, a new one is generated.
+        // We just need the core question data.
         validatedQuestions.push({
-            question: questionText,
-            options: trimmedOptions, // Use the cleaned options
-            correctAnswer: trimmedCorrectAnswer, // Use the cleaned answer
-            explanation: explanation
+            question: validatedQ.question,
+            options: validatedQ.options,
+            correctAnswer: validatedQ.correctAnswer,
+            explanation: validatedQ.explanation,
+             // Import history? Generally no, start fresh.
+             history: []
         });
     }
 
-    // All questions are valid
     return { isValid: true, message: "データは有効です。", questions: validatedQuestions };
 }
 
 
-// ====================================================================
-// 問題集操作 (Deck Management)
-// ====================================================================
+/** 新しいデッキオブジェクトを作成し、状態に追加 */
+function createNewDeck(baseName, questionsData) {
+    let deckName = generateUniqueDeckName(baseName);
+    const deckId = generateUUID('deck');
 
-/**
- * デッキリスト内のクリックイベントを処理する (イベント委任)
- * @param {MouseEvent} event - クリックイベント
- */
-function handleDeckListClick(event) {
-    const target = event.target;
-    // Find the closest list item with a deck ID
-    const listItem = target.closest('li[data-deck-id]');
-    if (!listItem) return; // Clicked outside a list item
+    const newDeck = {
+        id: deckId,
+        name: deckName,
+        questions: questionsData.map((q, index) => ({
+            id: generateUUID(`q_${deckId}`), // Ensure unique ID within the app
+            question: q.question,
+            options: q.options,
+            correctAnswer: q.correctAnswer,
+            explanation: q.explanation,
+            history: [] // Always start with empty history for new deck
+        })),
+        lastStudied: null,
+        totalCorrect: 0,
+        totalIncorrect: 0,
+        sessionHistory: []
+    };
 
-    const deckId = listItem.dataset.deckId;
-    if (!deckId) return; // List item doesn't have a deck ID
+    appState.allDecks[deckId] = newDeck; // Add to state immediately
+    return newDeck; // Return the created deck object
+}
 
-    const selectButton = target.closest('.select-deck');
-    const deleteButton = target.closest('.delete-deck');
+/** デッキ名が衝突しないように調整 */
+function generateUniqueDeckName(baseName) {
+    let deckName = baseName.trim() || '無名の問題集'; // Fallback name
+    if (!Object.values(appState.allDecks).some(d => d.name === deckName)) {
+        return deckName; // Name is already unique
+    }
+    let counter = 2;
+    while (Object.values(appState.allDecks).some(d => d.name === `${baseName} (${counter})`)) {
+        counter++;
+    }
+    return `${baseName} (${counter})`;
+}
 
-    if (selectButton && !selectButton.disabled) {
-        event.stopPropagation(); // Prevent list item click if button clicked
-        selectDeck(deckId);
-    } else if (deleteButton && !deleteButton.disabled) {
-        event.stopPropagation();
-        deleteDeck(deckId);
-    } else if (listItem.getAttribute('role') === 'button' && deckId !== appState.currentDeckId) {
-        // If the list item itself (not buttons) is clicked and it's not the active one
-        selectDeck(deckId);
+/** 全データのエクスポート処理 */
+function exportAllData() {
+    try {
+        showLoadingOverlay(true, "データエクスポート中...");
+        const exportData = {
+            appVersion: appState.appVersion,
+            exportTimestamp: Date.now(),
+            settings: appState.settings,
+            allDecks: appState.allDecks,
+            currentDeckId: appState.currentDeckId, // Include current selection state
+            // Optionally include other non-persistent states if needed
+        };
+
+        const jsonData = JSON.stringify(exportData, null, 2); // Pretty print JSON
+        const blob = new Blob([jsonData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+
+        // Generate filename (e.g., study-app-data_YYYYMMDD_HHMM.json)
+        const now = new Date();
+        const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+        link.download = `ai-study-app-data_v${appState.appVersion}_${timestamp}.json`;
+        link.href = url;
+
+        link.style.display = 'none'; // Hide the link
+        document.body.appendChild(link);
+        link.click(); // Trigger download
+
+        document.body.removeChild(link); // Clean up link
+        URL.revokeObjectURL(url); // Release object URL
+
+        showNotification("全データをエクスポートしました。", "success");
+        console.log("Data exported successfully.");
+
+    } catch (error) {
+        console.error("Error exporting data:", error);
+        showNotification(`データのエクスポート中にエラーが発生しました: ${error.message}`, "error");
+    } finally {
+         updateLoadingOverlay(false);
     }
 }
 
-/**
- * デッキリスト内のキーダウンイベント（Enter/Space）を処理する (アクセシビリティ)
- * @param {KeyboardEvent} event - キーダウンイベント
- */
-function handleDeckListKeydown(event) {
-     // Handle Enter or Space key press on list items
-     if (event.key === 'Enter' || event.key === ' ') {
-         const target = event.target;
-         // Ensure the target is the focusable list item itself
-         if (target.matches('li[data-deck-id][role="button"]')) {
-             event.preventDefault(); // Prevent default space scroll / enter form submit
-             const deckId = target.dataset.deckId;
-             if (deckId && deckId !== appState.currentDeckId) {
-                 selectDeck(deckId);
+/** インポートされたデータファイルを処理 */
+function processImportDataFile(content, fileName, statusElement) {
+    try {
+        if (typeof content !== 'string' || content.trim() === '') {
+            throw new Error("インポートファイルの内容が空または不正です。");
+        }
+        let data;
+        try {
+             data = JSON.parse(content);
+        } catch (parseError) { throw new Error(`JSON解析失敗: ${parseError.message}`); }
+
+        // Validate imported data structure (basic checks)
+        if (typeof data !== 'object' || data === null || !data.allDecks || !data.settings) {
+             throw new Error("インポートファイルの形式が不正です (必須キー allDecks, settings がありません)。");
+        }
+
+         // Ask user how to import (Replace / Merge)
+         const importMode = prompt(
+             `ファイル「${fileName}」のデータをインポートします。\n` +
+             "インポートモードを選択してください:\n" +
+             "1: 全置換 (現在のデータを削除し、ファイルの内容で置き換えます)\n" +
+             "2: マージ (ファイル内のデッキを追加/上書きし、設定を更新します)",
+             "2" // Default to Merge
+         );
+
+        if (importMode === '1') { // Replace
+             // **Very destructive action - require strong confirmation**
+             const confirmation = prompt(`警告！現在の全てのデッキ(${Object.keys(appState.allDecks).length}個)と設定を削除し、ファイルの内容で完全に置き換えます。この操作は元に戻せません。\n続行するには「REPLACE」と入力してください:`);
+             if (confirmation !== "REPLACE") {
+                 showNotification("インポートがキャンセルされました。", "info");
+                 updateStatusMessage(statusElement, "置換キャンセル", "info");
+                 return;
              }
-             // If Enter/Space is pressed on a button inside, let handleDeckListClick manage it
-         }
-     }
-     // Optional: Add ArrowUp/ArrowDown navigation between list items if needed
+            console.log("Performing Replace import...");
+            replaceDataFromImport(data, statusElement);
+
+        } else if (importMode === '2') { // Merge
+             console.log("Performing Merge import...");
+             mergeDataFromImport(data, statusElement);
+
+        } else {
+            showNotification("インポートがキャンセルされました。", "info");
+            updateStatusMessage(statusElement, "モード未選択", "info");
+            return;
+        }
+
+    } catch (error) {
+        console.error("Error processing import file:", error);
+        updateStatusMessage(statusElement, `インポートエラー: ${error.message}`, "error");
+        showNotification(`インポート処理エラー: ${error.message}`, 'error', 8000);
+    }
 }
 
+/** インポートデータで全置換 */
+function replaceDataFromImport(importedData, statusElement) {
+    try {
+        // Validate and repair imported settings and decks BEFORE applying
+        const repairedSettings = repairAndValidateSettings(importedData.settings);
+        const repairedDecks = repairAndValidateAllDecks(importedData.allDecks);
 
-/**
- * 指定されたIDのデッキを選択状態にする
- * @param {string} deckId - 選択するデッキのID
- */
-function selectDeck(deckId) {
-    if (!deckId || !appState.allDecks[deckId]) {
-        console.error("Cannot select deck: Invalid deck ID or deck not found.", deckId);
-        showNotification("問題集の選択に失敗しました。", "error");
+        appState.settings = repairedSettings;
+        appState.allDecks = repairedDecks;
+
+        // Validate imported currentDeckId
+        appState.currentDeckId = null; // Reset first
+        if (importedData.currentDeckId && repairedDecks[importedData.currentDeckId]) {
+             appState.currentDeckId = importedData.currentDeckId;
+        } else if (Object.keys(repairedDecks).length > 0) {
+             // Fallback to first deck if imported ID invalid
+             appState.currentDeckId = Object.keys(repairedDecks)[0];
+        }
+
+        // Save the replaced data
+        if (!saveData(LS_KEYS.SETTINGS, appState.settings) || !saveData(LS_KEYS.DECKS, appState.allDecks) || !saveData(LS_KEYS.CURRENT_DECK_ID, appState.currentDeckId)) {
+            // Attempt rollback on save failure? Very tricky. Best effort: reload app.
+             showNotification("データの完全置換後の保存に失敗しました。アプリを再読み込みしてください。", "error", 10000);
+            throw new Error("置換データの保存に失敗。状態が不安定な可能性があります。");
+        }
+
+        // Apply new settings to UI immediately
+        applyTheme(appState.settings.theme);
+        loadSettingsToUI(); // Update settings screen
+
+        // Refresh UI fully
+        updateHomeUI(true);
+        populateDashboardDeckSelect();
+        navigateToScreen('home-screen'); // Go to home after import
+
+        updateStatusMessage(statusElement, `置換インポート成功 (${Object.keys(appState.allDecks).length}デッキ)`, "success");
+        showNotification("データをファイルの内容で完全に置き換えました。", "success");
+
+    } catch (error) {
+        console.error("Error during replace import:", error);
+         updateStatusMessage(statusElement, `置換エラー: ${error.message}`, "error");
+        showNotification(`置換インポートエラー: ${error.message}`, 'error');
+    }
+}
+
+/** インポートデータでマージ */
+function mergeDataFromImport(importedData, statusElement) {
+     let addedCount = 0;
+     let updatedCount = 0;
+     try {
+        // Validate and repair imported decks individually BEFORE merging
+        const validImportedDecks = repairAndValidateAllDecks(importedData.allDecks || {});
+
+        if (Object.keys(validImportedDecks).length === 0) {
+            showNotification("インポートファイルに有効な問題集データが含まれていませんでした。", "warning");
+            updateStatusMessage(statusElement, "有効デッキなし", "warning");
+            return;
+        }
+
+         // Merge decks (add new, overwrite existing by ID)
+        for (const deckId in validImportedDecks) {
+            if (appState.allDecks[deckId]) {
+                updatedCount++;
+                console.log(`Merging: Updating deck ID ${deckId}`);
+            } else {
+                 addedCount++;
+                 console.log(`Merging: Adding new deck ID ${deckId}`);
+            }
+             appState.allDecks[deckId] = validImportedDecks[deckId]; // Add or overwrite
+         }
+
+        // Merge settings (overwrite current settings with imported *validated* settings)
+         const mergedSettings = repairAndValidateSettings(importedData.settings);
+         appState.settings = mergedSettings;
+
+        // Handle current deck ID: keep current if valid, otherwise use imported or fallback
+        if (!appState.currentDeckId || !appState.allDecks[appState.currentDeckId]) {
+            if (importedData.currentDeckId && appState.allDecks[importedData.currentDeckId]) {
+                 appState.currentDeckId = importedData.currentDeckId;
+             } else if (Object.keys(appState.allDecks).length > 0){
+                 // Fallback only if current selection becomes invalid AFTER merge
+                 appState.currentDeckId = Object.keys(appState.allDecks).sort((a, b) => (appState.allDecks[a]?.name ?? '').localeCompare(appState.allDecks[b]?.name ?? ''))[0];
+             }
+        }
+
+
+        // Save the merged data
+         if (!saveData(LS_KEYS.SETTINGS, appState.settings) || !saveData(LS_KEYS.DECKS, appState.allDecks) || !saveData(LS_KEYS.CURRENT_DECK_ID, appState.currentDeckId)) {
+            // Data might be partially merged if save fails midway. Tough situation.
+             showNotification("データのマージ保存中にエラーが発生しました。データが不完全な可能性があります。", "error", 10000);
+             throw new Error("マージデータの保存に失敗。");
+        }
+
+        // Apply theme and settings UI
+         applyTheme(appState.settings.theme);
+         loadSettingsToUI();
+
+         // Refresh UI
+         updateHomeUI(true);
+         populateDashboardDeckSelect();
+         // Don't navigate automatically on merge
+
+         updateStatusMessage(statusElement, `マージ成功 (追加${addedCount}, 更新${updatedCount})`, "success");
+        showNotification(`データをマージしました (追加 ${addedCount} 件, 更新 ${updatedCount} 件)。設定も更新されました。`, "success");
+
+     } catch (error) {
+         console.error("Error during merge import:", error);
+         updateStatusMessage(statusElement, `マージエラー: ${error.message}`, "error");
+         showNotification(`マージインポートエラー: ${error.message}`, 'error');
+     }
+}
+
+/** アプリの全データを削除 */
+function handleResetAllDataClick() {
+    const confirm1 = prompt("警告！ この操作は元に戻せません。\n\n全ての学習データ（全問題集、全解答履歴、設定）が完全に削除されます。\n\n続行する場合は「DELETE ALL」と入力してください:");
+
+    if (confirm1 !== "DELETE ALL") {
+         showNotification("全データ削除はキャンセルされました。", "info");
+         return;
+    }
+
+    const confirm2 = confirm("最終確認：本当にすべてのデータを削除しますか？");
+    if (!confirm2) {
+        showNotification("全データ削除はキャンセルされました。", "info");
         return;
     }
-    if (deckId === appState.currentDeckId) {
-        console.log("Deck already selected:", deckId);
-        return; // Already selected
+
+    console.warn("Initiating full data reset!");
+    showLoadingOverlay(true, "全データを削除中...");
+
+    try {
+        // Clear LocalStorage entries managed by the app
+        localStorage.removeItem(LS_KEYS.DECKS);
+        localStorage.removeItem(LS_KEYS.SETTINGS);
+        localStorage.removeItem(LS_KEYS.CURRENT_DECK_ID);
+        localStorage.removeItem(LS_KEYS.LAST_SCREEN);
+         // Clear other potential keys if added later
+
+        // Reset appState to defaults
+        appState.allDecks = {};
+        appState.settings = { ...DEFAULT_SETTINGS }; // Reset to defaults
+        appState.currentDeckId = null;
+         appState.currentDashboardDeckId = null;
+        // Reset UI states
+         resetStudyState(); // Clear any ongoing study
+         resetDashboardFiltersAndState(true); // Reset dashboard fully
+         appState.homeDeckCurrentPage = 1;
+         appState.homeDeckFilterQuery = '';
+         appState.homeDeckSortOrder = 'lastStudiedDesc';
+         appState.studyFilter = 'all';
+
+
+        // Apply default theme & settings to UI
+         applyTheme(appState.settings.theme); // Apply potentially reset theme
+         applyInitialSettingsToUI(); // Apply other default settings
+
+         // Refresh all major UI components
+         updateHomeUI(true);
+         populateDashboardDeckSelect();
+         navigateToScreen('home-screen'); // Force navigation to home
+
+        console.log("All application data has been reset.");
+        showNotification("すべてのアプリデータが削除されました。", "success");
+
+    } catch (error) {
+        console.error("Error during full data reset:", error);
+        showNotification(`データ削除中にエラーが発生しました: ${error.message}`, "error");
+    } finally {
+        updateLoadingOverlay(false);
     }
+}
+
+
+// --- Status Message Handling ---
+/**
+ * ステータスメッセージを指定要素に表示/更新
+ * @param {HTMLElement | null} element - 表示対象の要素
+ * @param {string} message - 表示メッセージ
+ * @param {NotificationType} type - メッセージ種別 ('info', 'success', 'warning', 'error')
+ */
+function updateStatusMessage(element, message, type = 'info') {
+    if (element) {
+        element.textContent = message;
+        element.className = `status-message ${type}`;
+        element.setAttribute('aria-live', (type === 'error' || type === 'warning') ? 'assertive' : 'polite');
+    }
+}
+
+/**
+ * ステータスメッセージを一定時間後にクリアする
+ * @param {HTMLElement | null} element - 対象要素
+ * @param {number} delay - 遅延時間 (ms)
+ */
+function clearStatusMessageAfterDelay(element, delay = 5000) {
+    setTimeout(() => {
+        if (element && element.classList.contains('success') || element.classList.contains('info')) {
+            updateStatusMessage(element, '', 'info'); // Clear only success/info
+        }
+    }, delay);
+}
+
+
+// ====================================================================
+// ホーム画面関連処理 (Home Screen)
+// ====================================================================
+
+/** ホーム画面全体のUIを更新 */
+function updateHomeUI(forceUpdate = false) {
+     if (!forceUpdate && appState.activeScreen !== 'home-screen') return; // Don't update if not visible unless forced
+
+     updateDeckListControlsVisibility(); // Show/hide search/sort controls
+     updateFilteredDeckList(); // This triggers pagination and list render
+     updateTopScreenDisplay(); // Update current deck info card
+     updateAllFilterCounts(); // Update counts on filter radios
+}
+
+/** デッキリストのコントロール表示/非表示を切り替え */
+function updateDeckListControlsVisibility() {
+     const showControls = Object.keys(appState.allDecks).length > 0;
+     if (dom.deckListControls) {
+         dom.deckListControls.style.display = showControls ? 'flex' : 'none';
+     }
+}
+
+/** デッキリストの検索入力ハンドラ */
+function handleDeckSearchInput(event) {
+     appState.homeDeckFilterQuery = event.target.value;
+     appState.homeDeckCurrentPage = 1; // Reset page on search
+     updateFilteredDeckList(); // Re-render list with new filter
+}
+
+/** デッキリストのソート順変更ハンドラ */
+function handleDeckSortChange(event) {
+    appState.homeDeckSortOrder = event.target.value;
+    appState.homeDeckCurrentPage = 1; // Reset page on sort
+    updateFilteredDeckList(); // Re-render list with new sort
+}
+
+/** フィルタリングとソートを適用したデッキリストを取得 */
+function getFilteredAndSortedDecks() {
+    let decks = Object.values(appState.allDecks);
+    const query = appState.homeDeckFilterQuery.toLowerCase().trim();
+
+    // Apply Search Filter
+    if (query) {
+        decks = decks.filter(deck => deck.name.toLowerCase().includes(query));
+    }
+
+    // Apply Sorting
+    decks.sort((a, b) => {
+        switch (appState.homeDeckSortOrder) {
+            case 'nameAsc': return (a.name || '').localeCompare(b.name || '', 'ja');
+            case 'nameDesc': return (b.name || '').localeCompare(a.name || '', 'ja');
+            case 'questionCountAsc': return (a.questions?.length || 0) - (b.questions?.length || 0);
+            case 'questionCountDesc': return (b.questions?.length || 0) - (a.questions?.length || 0);
+            case 'lastStudiedDesc': // Default
+            default:
+                const tsA = a.lastStudied || 0;
+                const tsB = b.lastStudied || 0;
+                if (tsB !== tsA) return tsB - tsA; // Newest first
+                return (a.name || '').localeCompare(b.name || '', 'ja'); // Secondary sort by name
+        }
+    });
+
+    return decks;
+}
+
+/** ホーム画面のデッキリストとページネーションを更新 */
+function updateFilteredDeckList() {
+     const filteredDecks = getFilteredAndSortedDecks();
+     const totalDecks = filteredDecks.length;
+     const decksPerPage = appState.settings.homeDecksPerPage; // Use setting
+     const totalPages = Math.ceil(totalDecks / decksPerPage) || 1;
+
+     // Validate current page
+     appState.homeDeckCurrentPage = Math.max(1, Math.min(appState.homeDeckCurrentPage, totalPages));
+
+     const startIndex = (appState.homeDeckCurrentPage - 1) * decksPerPage;
+     const endIndex = startIndex + decksPerPage;
+     const decksToShow = filteredDecks.slice(startIndex, endIndex);
+
+     renderDeckList(decksToShow);
+     renderDeckPagination(totalDecks, totalPages, appState.homeDeckCurrentPage);
+}
+
+/** デッキリストのレンダリング */
+function renderDeckList(decks) {
+     if (!dom.deckList) return;
+     dom.deckList.innerHTML = ''; // Clear existing
+     dom.deckList.scrollTop = 0; // Scroll to top on update
+
+     if (decks.length === 0) {
+         const message = appState.homeDeckFilterQuery ? `検索語「${appState.homeDeckFilterQuery}」に一致する問題集はありません。` : "利用可能な問題集がありません。";
+         dom.deckList.innerHTML = `<li class="no-decks-message">${message}</li>`;
+         return;
+     }
+
+     const fragment = document.createDocumentFragment();
+     decks.forEach(deck => {
+         const li = document.createElement('li');
+         li.dataset.deckId = deck.id;
+         li.tabIndex = 0; // Make focusable
+         li.setAttribute('role', 'button'); // Behave like a button
+         li.setAttribute('aria-label', `問題集 ${deck.name || '名称未設定'} を選択`);
+         li.classList.toggle('active-deck', deck.id === appState.currentDeckId);
+         li.setAttribute('aria-selected', String(deck.id === appState.currentDeckId));
+
+         const infoDiv = document.createElement('div');
+         infoDiv.className = 'deck-info';
+         const nameSpan = document.createElement('span');
+         nameSpan.className = 'deck-name';
+         nameSpan.textContent = `${deck.name || '名称未設定'} (${deck.questions?.length || 0}問)`;
+         const historySpan = document.createElement('span');
+         historySpan.className = 'deck-history';
+         const { accuracyText } = calculateOverallAccuracy(deck);
+         historySpan.textContent = `${deck.lastStudied ? `最終学習: ${formatDate(deck.lastStudied)}` : '未学習'} / ${accuracyText}`;
+         infoDiv.appendChild(nameSpan);
+         infoDiv.appendChild(historySpan);
+
+         const actionsDiv = document.createElement('div');
+         actionsDiv.className = 'deck-actions no-print'; // Don't print buttons
+         const selectBtn = createButton({
+             text: '<i class="fas fa-check-circle"></i> 選択',
+             class: 'small primary select-deck',
+             ariaLabel: `問題集 ${deck.name || '名称未設定'} を選択`,
+             data: { 'deck-id': deck.id },
+             disabled: deck.id === appState.currentDeckId,
+         });
+         const deleteBtn = createButton({
+             text: '<i class="fas fa-trash-alt"></i> 削除',
+             class: 'small danger delete-deck',
+             ariaLabel: `問題集 ${deck.name || '名称未設定'} を削除`,
+             data: { 'deck-id': deck.id },
+         });
+         actionsDiv.appendChild(selectBtn);
+         actionsDiv.appendChild(deleteBtn);
+
+         li.appendChild(infoDiv);
+         li.appendChild(actionsDiv);
+         fragment.appendChild(li);
+     });
+     dom.deckList.appendChild(fragment);
+}
+
+/** デッキリストページネーションのレンダリング */
+function renderDeckPagination(totalItems, totalPages, currentPage) {
+     renderGenericPagination(dom.deckListPagination, totalItems, totalPages, currentPage);
+}
+
+/** ホーム画面のデッキリストページ遷移ハンドラ */
+function handleDeckPaginationClick(event) {
+     const targetPage = getPageFromPaginationClick(event);
+     if (targetPage !== null) {
+         appState.homeDeckCurrentPage = targetPage;
+         updateFilteredDeckList(); // Re-render list for the new page
+         // Optionally focus the list after page change
+         dom.deckList?.focus();
+     }
+}
+
+
+/** ホーム画面の「現在の問題集」情報とフィルター関連を更新 */
+function updateTopScreenDisplay() {
+    const deckSelected = !!appState.currentDeckId && !!appState.allDecks[appState.currentDeckId];
+    const currentDeck = deckSelected ? appState.allDecks[appState.currentDeckId] : null;
+
+    safeSetText(dom.currentDeckName, currentDeck ? (currentDeck.name || '名称未設定') : '未選択');
+    safeSetText(dom.totalQuestions, currentDeck ? (currentDeck.questions?.length ?? 0).toString() : '0');
+    safeSetText(dom.currentDeckLastStudied, currentDeck?.lastStudied ? formatDate(currentDeck.lastStudied) : '-');
+
+    if (dom.currentDeckAccuracy) {
+         const { accuracyText } = calculateOverallAccuracy(currentDeck);
+         dom.currentDeckAccuracy.textContent = accuracyText;
+    }
+
+    // Study Filter Options Visibility & Threshold Update
+    if (dom.studyFilterOptions) dom.studyFilterOptions.style.display = deckSelected ? 'block' : 'none';
+    if (dom.lowAccuracyThresholdDisplayFilter) {
+        dom.lowAccuracyThresholdDisplayFilter.textContent = appState.settings.lowAccuracyThreshold;
+    }
+
+    // Update Start/Reset buttons based on deck selection and history
+    updateHomeActionButtonsState(currentDeck);
+
+    // Update filter counts (debounced to avoid lag)
+     clearTimeout(filterCountDebounceTimer);
+     filterCountDebounceTimer = setTimeout(updateAllFilterCounts, MIN_DEBOUNCE_DELAY);
+}
+
+/** ホーム画面のアクションボタン（開始、リセット）の状態を更新 */
+function updateHomeActionButtonsState(currentDeck) {
+     // Start Study Button (State handled by updateAllFilterCounts -> updateStudyButtonsState)
+
+     // Reset History Button
+     if (dom.resetHistoryButton) {
+        let hasHistory = false;
+         if (currentDeck) {
+             hasHistory = (currentDeck.lastStudied !== null) ||
+                          (currentDeck.totalCorrect > 0) ||
+                          (currentDeck.totalIncorrect > 0) ||
+                          (currentDeck.sessionHistory?.length > 0) ||
+                          (currentDeck.questions?.some(q => q.history?.length > 0));
+         }
+         dom.resetHistoryButton.disabled = !hasHistory;
+         dom.resetHistoryButton.setAttribute('aria-disabled', String(!hasHistory));
+         dom.resetHistoryButton.title = hasHistory
+             ? "選択中の問題集の全学習履歴をリセットします (要確認)"
+             : (currentDeck ? "リセットする履歴がありません" : "問題集を選択してください");
+     }
+}
+
+
+/** ホーム画面: フィルター選択ラジオ内の問題数カウントを更新 */
+function updateAllFilterCounts() {
+     if (!appState.currentDeckId || !appState.allDecks[appState.currentDeckId]) {
+          // Clear all counts if no deck selected
+          dom.studyFilterRadios.forEach(radio => {
+               const countSpan = radio.nextElementSibling?.querySelector('.filter-count');
+               if(countSpan) countSpan.textContent = `(0)`;
+          });
+          if(dom.filteredQuestionCountDisplay) dom.filteredQuestionCountDisplay.textContent = "対象問題数: 0問";
+           updateStudyButtonsState(0); // Disable start button
+          return;
+     }
+
+    const counts = {};
+    let totalFiltered = 0;
+     try {
+          dom.studyFilterRadios.forEach(radio => {
+              const filterValue = radio.value;
+               const list = getFilteredStudyList(filterValue); // Pass the specific filter value
+               counts[filterValue] = list.length;
+               const countSpan = radio.nextElementSibling?.querySelector('.filter-count');
+               if(countSpan) countSpan.textContent = `(${list.length})`;
+
+               if(radio.checked) {
+                   totalFiltered = list.length; // Get count for the currently selected filter
+               }
+          });
+     } catch (error) {
+         console.error("Error updating filter counts:", error);
+     }
+
+     // Update the main count display
+    if(dom.filteredQuestionCountDisplay) {
+        dom.filteredQuestionCountDisplay.textContent = `総対象問題数: ${totalFiltered}問`;
+    }
+
+     // Update Start Button State based on selected filter's count
+    updateStudyButtonsState(totalFiltered);
+}
+
+/** ホーム画面: Start Study ボタンの有効/無効とツールチップを更新 */
+function updateStudyButtonsState(filteredCount) {
+    if (!dom.startStudyButton) return;
+    const canStart = filteredCount > 0;
+    dom.startStudyButton.disabled = !canStart;
+    dom.startStudyButton.setAttribute('aria-disabled', String(!canStart));
+
+    if (!appState.currentDeckId) {
+         dom.startStudyButton.title = "学習を開始する問題集を選択してください。";
+     } else if (!canStart) {
+         let filterLabel = "選択されたフィルター条件";
+         const selectedRadio = document.querySelector('input[name="study-filter"]:checked');
+         if (selectedRadio) {
+              const labelElement = document.querySelector(`label[for="${selectedRadio.id}"]`);
+              if(labelElement) filterLabel = `「${labelElement.querySelector('.filter-text')?.textContent.trim() ?? '選択条件'}」`;
+         }
+         dom.startStudyButton.title = `${filterLabel} に該当する問題がありません。`;
+     } else {
+         dom.startStudyButton.title = `選択中のフィルター (${filteredCount}問) で学習を開始します`;
+     }
+}
+
+
+/** デッキリストのクリックイベント処理（委任） */
+function handleDeckListClick(event) {
+    const listItem = event.target.closest('li[data-deck-id]');
+    if (!listItem) return;
+    const deckId = listItem.dataset.deckId;
+    if (!deckId) return;
+
+    const selectButton = event.target.closest('.select-deck');
+    const deleteButton = event.target.closest('.delete-deck');
+
+    if (selectButton && !selectButton.disabled) {
+         event.stopPropagation();
+         selectDeck(deckId);
+    } else if (deleteButton && !deleteButton.disabled) {
+        event.stopPropagation();
+        handleDeleteDeckClick(deckId); // Confirmation inside
+    } else if (listItem.getAttribute('role') === 'button' && deckId !== appState.currentDeckId) {
+        // Click on the list item itself (not buttons) to select
+         selectDeck(deckId);
+    }
+}
+
+/** デッキリストのキーダウンイベント処理（委任） */
+function handleDeckListKeydown(event) {
+     const currentItem = event.target;
+     if (!currentItem.matches('li[data-deck-id]')) return; // Ignore if not on list item
+
+    switch (event.key) {
+        case 'Enter':
+        case ' ':
+             event.preventDefault();
+             const deckId = currentItem.dataset.deckId;
+             if (deckId && deckId !== appState.currentDeckId) {
+                selectDeck(deckId);
+            }
+            break;
+         case 'ArrowDown':
+             event.preventDefault();
+             focusSiblingListItem(currentItem, 'nextElementSibling');
+             break;
+         case 'ArrowUp':
+             event.preventDefault();
+             focusSiblingListItem(currentItem, 'previousElementSibling');
+             break;
+         case 'Home':
+             event.preventDefault();
+             focusSiblingListItem(currentItem, 'firstElementChild', currentItem.parentElement);
+             break;
+         case 'End':
+             event.preventDefault();
+             focusSiblingListItem(currentItem, 'lastElementChild', currentItem.parentElement);
+             break;
+         case 'Delete': // Add delete shortcut? Maybe too risky?
+            // handleDeleteDeckClick(currentItem.dataset.deckId);
+            break;
+    }
+}
+
+/** フォーカス可能な兄弟リスト要素にフォーカスを移動 */
+function focusSiblingListItem(currentItem, directionProperty, parent = currentItem.parentElement) {
+     if (!parent) return;
+     let sibling;
+     if (directionProperty === 'firstElementChild' || directionProperty === 'lastElementChild') {
+         sibling = parent[directionProperty];
+     } else {
+         sibling = currentItem[directionProperty];
+     }
+     // Find the next focusable sibling li
+     while (sibling && (!sibling.matches('li[data-deck-id]') || sibling.offsetParent === null)) { // Check visible
+        sibling = sibling[directionProperty];
+     }
+    if (sibling) {
+        sibling.focus();
+    }
+}
+
+/** 指定されたIDのデッキを選択状態にする */
+function selectDeck(deckId) {
+    if (!deckId || !appState.allDecks[deckId] || deckId === appState.currentDeckId) return;
 
     appState.currentDeckId = deckId;
-    if (!saveData(LS_KEYS.CURRENT_DECK_ID, deckId)) {
-        // If saving fails, should we revert the state? Or just warn?
-        console.error("Failed to save current deck ID to LocalStorage.");
-        showNotification("選択した問題集の保存に失敗しました。", "warning");
-        // Optionally revert: appState.currentDeckId = previousDeckId; (need to store previous)
-    }
+    appState.currentDashboardDeckId = deckId; // Sync dashboard selection
+    saveData(LS_KEYS.CURRENT_DECK_ID, deckId);
 
     console.log("Deck selected:", deckId);
-    const deckName = appState.allDecks[deckId]?.name || '無名';
-    showNotification(`問題集「${deckName}」を選択しました。`, "success", 2500);
+    showNotification(`問題集「${appState.allDecks[deckId]?.name || '無名'}」を選択しました。`, 'success', 2500);
 
-    // Reset study filter to 'all' when changing decks
+    // Reset study filter to 'all' on deck change
     appState.studyFilter = 'all';
-    if (dom.studyFilterRadios) {
-        const allFilterRadio = document.getElementById('filter-all');
-        if (allFilterRadio) allFilterRadio.checked = true;
-    }
+    const allFilterRadio = document.getElementById('filter-all');
+    if (allFilterRadio) allFilterRadio.checked = true;
 
-    // Update UI elements that depend on the current deck
-    updateDeckListUI(); // Reflects the new selection visually
-    updateTopScreenDisplay(); // Updates info card and filter counts/button states
+    // Update UI that depends on current deck
+     updateHomeUI(true); // Update list, counts etc. Force update.
+    if(dom.dashboardDeckSelect) dom.dashboardDeckSelect.value = deckId;
 
-    // Sync dashboard selection if dashboard is active or becomes active
-    appState.currentDashboardDeckId = deckId;
-    if (dom.dashboardDeckSelect) {
-         dom.dashboardDeckSelect.value = deckId; // Update dropdown selection
-    }
+    // If on dashboard, refresh it for the new deck
     if (appState.activeScreen === 'dashboard-screen') {
-        // If already on dashboard, reset filters and render for the new deck
-        resetDashboardFiltersAndState();
+        resetDashboardFiltersAndState(false); // Don't reset deck ID
         renderDashboard();
     }
 }
 
-/**
- * 指定されたIDのデッキを削除する
- * @param {string} deckId - 削除するデッキのID
- */
-function deleteDeck(deckId) {
-    if (!deckId || !appState.allDecks[deckId]) {
-        console.error("Cannot delete deck: Invalid deck ID or deck not found.", deckId);
-        showNotification("問題集の削除に失敗しました。", "error");
-        return;
-    }
+/** デッキ削除ボタンクリック時の処理 */
+function handleDeleteDeckClick(deckId) {
+     const deck = appState.allDecks[deckId];
+     if (!deck) return;
 
-    const deck = appState.allDecks[deckId];
-    const deckName = deck.name || '無名の問題集';
-    // More explicit confirmation message
-    if (confirm(`問題集「${deckName}」とその全ての学習履歴（${deck.questions?.length ?? 0}問分）を完全に削除します。\n\nこの操作は元に戻せません！\n\nよろしいですか？`)) {
-        try {
-            // Store backup in case save fails
-            const originalDecks = { ...appState.allDecks };
-            const deletedDeckData = appState.allDecks[deckId]; // For logging/potential recovery
-
-            // Remove from state
-            delete appState.allDecks[deckId];
-
-            let deckSelectionChanged = false;
-            // If the deleted deck was selected, deselect it
-            if (appState.currentDeckId === deckId) {
-                appState.currentDeckId = null;
-                saveData(LS_KEYS.CURRENT_DECK_ID, null); // Persist deselection
-                deckSelectionChanged = true;
-            }
-            // If the deleted deck was selected on the dashboard, deselect it
-            if (appState.currentDashboardDeckId === deckId) {
-                appState.currentDashboardDeckId = null;
-                if (dom.dashboardDeckSelect) dom.dashboardDeckSelect.value = ""; // Reset dropdown
-                deckSelectionChanged = true;
-            }
-
-            // Attempt to save the change
-            if (!saveData(LS_KEYS.DECKS, appState.allDecks)) {
-                 // Rollback state if save fails
-                 appState.allDecks = originalDecks;
-                 // Re-select if it was deselected during the failed attempt
-                 if (appState.currentDeckId === null && originalDecks[deckId]) appState.currentDeckId = deckId;
-                 if (appState.currentDashboardDeckId === null && originalDecks[deckId]) appState.currentDashboardDeckId = deckId;
-
-                 console.error("Failed to save deck deletion to LocalStorage. Operation rolled back in memory.");
-                 showNotification("問題集データの保存に失敗しました。削除はキャンセルされました。", "error", 6000);
-                 return; // Stop execution
-            }
-
-            // Success
-            console.log("Deck deleted:", deckId, deletedDeckData);
-            showNotification(`問題集「${deckName}」を削除しました。`, "success");
-
-            // Update UI reflecting the deletion and potential deselection
-            updateDeckListUI();
-            updateTopScreenDisplay();
-            populateDashboardDeckSelect(); // Update dashboard dropdown
-
-            // If on dashboard and the selected deck was deleted, refresh dashboard (will show no-deck message)
-            if (appState.activeScreen === 'dashboard-screen' && deckSelectionChanged && appState.currentDashboardDeckId === null) {
-                 renderDashboard();
-            }
-
-        } catch (error) {
-            console.error("Error deleting deck:", error);
-            showNotification("問題集の削除中に予期せぬエラーが発生しました。", "error");
-            // Potentially inconsistent state here, maybe reload?
-        }
-    }
+     showModal({
+         title: `<i class="fas fa-exclamation-triangle" style="color:var(--danger-color);"></i> 問題集削除確認`,
+         content: `<p>問題集「<strong>${escapeHtml(deck.name || '名称未設定')}</strong>」(${deck.questions?.length ?? 0}問) とその全ての学習履歴を完全に削除します。</p>
+                   <p style="font-weight:bold; color:var(--danger-dark);">この操作は元に戻せません！</p>`,
+         buttons: [
+             { id: 'confirm-delete-btn', text: '削除する', class: 'danger', onClick: () => { deleteDeckConfirmed(deckId); closeModal(); } },
+             { id: 'cancel-delete-btn', text: 'キャンセル', class: 'secondary', onClick: closeModal }
+         ]
+     });
 }
 
-/** 現在選択中のデッキの学習履歴をリセットする */
-function resetCurrentDeckHistory() {
-    const deckId = appState.currentDeckId;
+/** デッキ削除を最終確認後、実行 */
+function deleteDeckConfirmed(deckId) {
     if (!deckId || !appState.allDecks[deckId]) {
-        showNotification("履歴をリセットする問題集が選択されていません。", "warning");
+        showNotification("削除対象の問題集が見つかりません。", "error");
         return;
     }
+    const deckName = appState.allDecks[deckId].name || '無名';
+    console.log(`Deleting deck: ${deckName} (ID: ${deckId})`);
+    showLoadingOverlay(true, `「${deckName}」を削除中...`);
 
-    const deck = appState.allDecks[deckId];
-    const deckName = deck.name || '無名の問題集';
+     const originalDecks = { ...appState.allDecks }; // Backup for rollback
+     delete appState.allDecks[deckId];
 
-    // Clearer confirmation message
-    if (confirm(`問題集「${deckName}」の全ての学習履歴（各問題の解答履歴、評価、累計正答率、最終学習日、セッション履歴）をリセットします。\n\n問題自体は削除されません。\nこの操作は元に戻せません！\n\nよろしいですか？`)) {
-        try {
-            // Backup original deck data for potential rollback
-            const originalDeck = JSON.parse(JSON.stringify(deck)); // Deep copy
+     let selectionChanged = false;
+     if (appState.currentDeckId === deckId) {
+        appState.currentDeckId = null;
+         selectionChanged = true;
+     }
+     if (appState.currentDashboardDeckId === deckId) {
+         appState.currentDashboardDeckId = null;
+          if(dom.dashboardDeckSelect) dom.dashboardDeckSelect.value = "";
+         selectionChanged = true;
+     }
 
-            // Reset deck-level stats
-            deck.lastStudied = null;
-            deck.totalCorrect = 0;
-            deck.totalIncorrect = 0;
-            deck.sessionHistory = [];
+    // Save deletion
+     if (saveData(LS_KEYS.DECKS, appState.allDecks)) {
+         if (selectionChanged) saveData(LS_KEYS.CURRENT_DECK_ID, null);
+         showNotification(`問題集「${deckName}」を削除しました。`, "success");
+     } else {
+         appState.allDecks = originalDecks; // Rollback state
+         showNotification("問題集の削除中にエラーが発生しました。操作はキャンセルされました。", "error");
+          updateLoadingOverlay(false);
+         return; // Stop UI update
+     }
 
-            // Reset history for each question
-            if (Array.isArray(deck.questions)) {
-                deck.questions.forEach(q => {
-                    if (q && typeof q === 'object') {
-                        q.history = []; // Clear history array
-                    }
-                });
-            }
-
-            // Attempt to save the changes
-            if (!saveData(LS_KEYS.DECKS, appState.allDecks)) {
-                 // Rollback if save fails
-                 appState.allDecks[deckId] = originalDeck;
-                 console.error("Failed to save history reset to LocalStorage. Operation rolled back in memory.");
-                 showNotification("学習履歴の保存に失敗しました。リセットはキャンセルされました。", "error", 6000);
-                 return; // Stop execution
-            }
-
-            // Success
-            console.log("History reset for deck:", deckId);
-            showNotification(`問題集「${deckName}」の学習履歴をリセットしました。`, "success");
-
-            // Update relevant UI elements
-            updateTopScreenDisplay(); // Reflects reset stats
-            updateDeckListUI(); // Reflects reset stats in list view
-            updateFilteredQuestionCount(); // Recalculate filter count
-            // updateStudyButtonsState(); // Called by updateFilteredQuestionCount
-
-            // If on dashboard viewing this deck, re-render it
-            if (appState.currentDashboardDeckId === deckId && appState.activeScreen === 'dashboard-screen') {
-                 renderDashboard();
-            }
-
-        } catch (error) {
-            console.error("Error resetting history for deck:", deckId, error);
-            showNotification(`学習履歴のリセット中に予期せぬエラーが発生しました: ${error.message}`, "error");
-        }
+    // Update UI after successful deletion
+    updateHomeUI(true);
+    populateDashboardDeckSelect(); // Update dropdown
+    if (appState.activeScreen === 'dashboard-screen' && selectionChanged) {
+         renderDashboard(); // Refresh dashboard if selection changed
     }
+     updateLoadingOverlay(false);
+}
+
+/** 学習履歴リセットボタンクリック時の処理 */
+function handleResetHistoryClick() {
+     const deckId = appState.currentDeckId;
+     if (!deckId || !appState.allDecks[deckId]) {
+         showNotification("問題集が選択されていません。", "warning");
+         return;
+     }
+     const deck = appState.allDecks[deckId];
+
+     // Use custom modal for confirmation, requesting deck name input
+     showModal({
+         title: `<i class="fas fa-history" style="color:var(--warning-color);"></i> 学習履歴リセット確認`,
+         content: `<p>問題集「<strong>${escapeHtml(deck.name)}</strong>」の全ての学習履歴（解答履歴、評価、統計、最終学習日）をリセットします。</p>
+                    <p>問題自体は削除されません。<strong>この操作は元に戻せません！</strong></p>
+                   <hr>
+                    <label for="reset-confirm-input">確認のため、問題集名「${escapeHtml(deck.name)}」を入力してください:</label>
+                    <input type="text" id="reset-confirm-input" class="confirm-input" style="width: 100%; margin-top: 5px;" placeholder="${escapeHtml(deck.name)}">
+                   <p id="reset-confirm-error" class="status-message error" style="display:none; margin-top: 5px;"></p>`,
+         buttons: [
+             { id: 'confirm-reset-btn', text: '履歴リセット実行', class: 'danger', onClick: () => resetHistoryConfirmed(deckId) /* Confirmation inside */ },
+             { id: 'cancel-reset-btn', text: 'キャンセル', class: 'secondary', onClick: closeModal }
+         ]
+     });
+     // Initial focus on input field
+     setTimeout(() => document.getElementById('reset-confirm-input')?.focus(), 100);
+}
+
+/** 履歴リセットを最終確認（名称入力）後、実行 */
+function resetHistoryConfirmed(deckId) {
+     const deck = appState.allDecks[deckId];
+     const confirmInput = document.getElementById('reset-confirm-input');
+     const errorMsg = document.getElementById('reset-confirm-error');
+     if (!deck || !confirmInput || !errorMsg) return;
+
+     if (confirmInput.value !== deck.name) {
+         errorMsg.textContent = "入力された問題集名が一致しません。";
+         errorMsg.style.display = 'block';
+         confirmInput.focus();
+         return;
+     }
+
+     // Name matched, proceed with reset
+     closeModal(); // Close the confirmation modal
+     console.log(`Resetting history for deck: ${deck.name} (ID: ${deckId})`);
+    showLoadingOverlay(true, `「${deck.name}」の履歴をリセット中...`);
+
+     const originalDeck = JSON.parse(JSON.stringify(deck)); // Backup
+
+     try {
+         deck.lastStudied = null;
+         deck.totalCorrect = 0;
+         deck.totalIncorrect = 0;
+         deck.sessionHistory = [];
+         if (Array.isArray(deck.questions)) {
+             deck.questions.forEach(q => { q.history = []; });
+         }
+
+         // Save the change
+         if (!saveData(LS_KEYS.DECKS, appState.allDecks)) {
+             appState.allDecks[deckId] = originalDeck; // Rollback
+             throw new Error("履歴リセット後の保存に失敗しました。");
+         }
+
+         showNotification(`問題集「${deck.name}」の学習履歴をリセットしました。`, "success");
+
+         // Update UI
+         updateHomeUI(true);
+         if (appState.currentDashboardDeckId === deckId && appState.activeScreen === 'dashboard-screen') {
+             renderDashboard(); // Refresh dashboard if it was showing this deck
+         }
+
+     } catch (error) {
+         console.error("Error resetting history:", error);
+         showNotification(`履歴リセットエラー: ${error.message}`, "error");
+     } finally {
+         updateLoadingOverlay(false);
+     }
+}
+
+/** ホーム画面: 学習フィルター選択ハンドラ */
+function handleStudyFilterChange(event) {
+     if (event.target.checked && event.target.name === 'study-filter') {
+         appState.studyFilter = event.target.value;
+         console.log("Study filter changed to:", appState.studyFilter);
+         // Update counts immediately (debounced internally)
+          clearTimeout(filterCountDebounceTimer);
+          filterCountDebounceTimer = setTimeout(updateAllFilterCounts, MIN_DEBOUNCE_DELAY);
+     }
+}
+
+/**
+ * 現在選択されているデッキとフィルターに基づいて、学習対象の問題リストを取得する
+ * @param {string} [filter=appState.studyFilter] - 使用するフィルター値 (指定なければstateの値)
+ * @returns {QuestionData[]} フィルターされた問題データの配列 (常に配列を返す)
+ */
+function getFilteredStudyList(filter = appState.studyFilter) {
+    const deck = appState.allDecks[appState.currentDeckId];
+    if (!deck || !Array.isArray(deck.questions)) return [];
+
+    const questions = deck.questions;
+    const lowThreshold = appState.settings.lowAccuracyThreshold;
+
+    // console.log(`Filtering: ${questions.length} questions with filter "${filter}" (Threshold: ${lowThreshold}%)`);
+
+    let filteredQuestions = [];
+    switch (filter) {
+        case 'lowAccuracy':
+            filteredQuestions = questions.filter(q => {
+                const stats = calculateQuestionAccuracy(q);
+                 return stats.totalCount > 0 && stats.accuracy <= lowThreshold;
+            });
+            break;
+        case 'incorrect':
+            filteredQuestions = questions.filter(q => q.history?.length > 0 && !q.history[q.history.length - 1].correct);
+            break;
+        case 'unanswered':
+            filteredQuestions = questions.filter(q => !q.history || q.history.length === 0);
+            break;
+        case 'difficult':
+        case 'normal':
+        case 'easy':
+             filteredQuestions = questions.filter(q => q.history?.length > 0 && q.history[q.history.length - 1].evaluation === filter);
+            break;
+        case 'all':
+        default:
+            filteredQuestions = [...questions]; // Return a copy
+            break;
+    }
+    // console.log(`Filter result: ${filteredQuestions.length} questions`);
+    return filteredQuestions;
 }
 
 
@@ -1508,1493 +2258,1175 @@ function resetCurrentDeckHistory() {
 
 /** 学習セッションを開始する */
 function startStudy() {
-    if (!appState.currentDeckId || !appState.allDecks[appState.currentDeckId]) {
+    const deck = appState.allDecks[appState.currentDeckId];
+    if (!deck) {
         showNotification('学習を開始する問題集を選択してください。', 'warning');
         return;
     }
-    const currentDeck = appState.allDecks[appState.currentDeckId];
-    let filteredList;
-    try {
-        filteredList = getFilteredStudyList(); // Get questions based on filter
-        console.log(`startStudy: Filter '${appState.studyFilter}' generated ${filteredList.length} questions for deck '${currentDeck.name}'`);
-    } catch (error) {
-        console.error("startStudy: Error getting filtered list:", error);
-        showNotification("学習リストの生成中にエラーが発生しました。", "error");
-        return;
-    }
-
-    // Validate the filtered list
-    if (!Array.isArray(filteredList)) {
-         console.error("startStudy: Filtered list is not an array after generation!", filteredList);
-         showNotification("学習リストの形式が不正です。", "error");
-         return;
-    }
+    const filteredList = getFilteredStudyList(); // Use current appState.studyFilter
     if (filteredList.length === 0) {
-        // Get filter label for the notification
-        let filterLabel = "選択されたフィルター条件";
-        const selectedRadio = document.querySelector('input[name="study-filter"]:checked');
-        if (selectedRadio) {
-             const labelElement = document.querySelector(`label[for="${selectedRadio.id}"]`);
-             if(labelElement) {
-                 const labelText = labelElement.querySelector('span')?.textContent || labelElement.textContent;
-                 filterLabel = `「${labelText.trim()}」フィルター`;
-             }
-        }
-        showNotification(`${filterLabel}に該当する問題がありません。`, 'warning');
+         const selectedRadio = document.querySelector('input[name="study-filter"]:checked');
+         let filterLabel = "選択されたフィルター";
+         if (selectedRadio) filterLabel = `「${selectedRadio.nextElementSibling?.querySelector('.filter-text')?.textContent.trim() ?? '選択条件'}」`;
+        showNotification(`${filterLabel} に該当する問題がありません。`, 'warning');
         return;
     }
 
-    // Prepare the study list (copy and shuffle if needed)
-    appState.studyList = [...filteredList]; // Create a new array instance
-    if (appState.settings.shuffleOptions) { // ★ Mistake in V2: was shuffling options, should shuffle question order
-        appState.studyList = shuffleArray(appState.studyList);
-        console.log("startStudy: Study question list shuffled.");
-    }
+    appState.studyList = [...filteredList]; // Copy
+    // Shuffle question order (always shuffle study list?) - Keep original setting meaning choice shuffle
+    // Decision: Let's *always* shuffle the *question order* in the study session for better learning.
+     appState.studyList = shuffleArray(appState.studyList);
+     console.log(`Study session started with ${appState.studyList.length} questions (shuffled order).`);
 
-    // Reset session state for the new session
+
+    // Reset session state
     appState.currentQuestionIndex = 0;
-    appState.stats.currentSessionCorrect = 0;
-    appState.stats.currentSessionIncorrect = 0;
-    console.log("Session stats reset for new study session.");
+    appState.studyStats = { currentSessionCorrect: 0, currentSessionIncorrect: 0 };
+    appState.isStudyActive = true;
+
+    // Update Study Screen Title & UI Reset
+     if (dom.studyScreenTitle) dom.studyScreenTitle.querySelector('span').textContent = deck.name || '名称未設定';
+     if(dom.studyCompleteMessage) dom.studyCompleteMessage.style.display = 'none';
+     if(dom.quitStudyHeaderButton) dom.quitStudyHeaderButton.style.display = 'inline-block'; // Show quit button in header
+     if(dom.studyCard) dom.studyCard.style.display = 'block';
+     if(dom.evaluationControls) dom.evaluationControls.style.display = 'none';
+     if(dom.answerArea) dom.answerArea.style.display = 'none';
+     if(dom.retryButton) dom.retryButton.style.display = 'none'; // Hide retry initially
 
 
-    // Update UI for study screen
-    if (dom.studyScreenTitle) {
-        dom.studyScreenTitle.textContent = `学習中: ${currentDeck.name || '名称未設定'}`;
-    }
-    // Ensure correct initial UI state for study screen elements
-    if(dom.studyCompleteMessage) dom.studyCompleteMessage.style.display = 'none';
-    if(dom.quitStudyButton) dom.quitStudyButton.style.display = 'inline-block'; // Show quit button
-    if(dom.studyCard) dom.studyCard.style.display = 'block'; // Show question card
-    if(dom.evaluationControls) dom.evaluationControls.style.display = 'none'; // Hide eval initially
-    if(dom.answerArea) dom.answerArea.style.display = 'none'; // Hide answer initially
-
-    // Navigate and display first question
-    navigateToScreen('study-screen');
-    console.log(`startStudy: Starting session with ${appState.studyList.length} questions.`);
+    navigateToScreen('study-screen'); // Navigate AFTER setup
     displayCurrentQuestion();
+     updateStudyProgress();
 }
 
-/** 現在のインデックスの問題を画面に表示する */
+/** 現在の問題を画面に表示 */
 function displayCurrentQuestion() {
-    console.log(`displayCurrentQuestion - Index: ${appState.currentQuestionIndex}, List length: ${appState.studyList?.length}`);
-
-    // Check for necessary DOM elements
-    const requiredElements = ['questionCounter', 'questionText', 'optionsButtonsContainer', 'answerArea', 'evaluationControls', 'studyCard', 'feedbackMessage', 'retryButton'];
-    const missingElements = requiredElements.filter(key => !dom[key] || !document.body.contains(dom[key]));
-    if (missingElements.length > 0) {
-        console.error(`displayCurrentQuestion: Critical UI elements missing: ${missingElements.join(', ')}`);
-        showNotification("学習画面の表示に必要な要素が見つかりません。ホーム画面に戻ります。", "error", 8000);
-        resetStudyState(); // Clean up study state
-        navigateToScreen('home-screen'); // Navigate away
+    // Validate state before proceeding
+     if (!appState.isStudyActive || !dom.questionText || !dom.optionsButtonsContainer || appState.currentQuestionIndex < 0 || appState.currentQuestionIndex >= appState.studyList.length) {
+        console.warn("displayCurrentQuestion: Invalid state or elements. Ending study.", {
+            isStudyActive: appState.isStudyActive,
+             index: appState.currentQuestionIndex, listLength: appState.studyList.length });
+         if (appState.isStudyActive) showStudyCompletion(); // End gracefully if was active
         return;
     }
-
-    // Check if the study list and index are valid
-    if (!Array.isArray(appState.studyList) || appState.studyList.length === 0 || appState.currentQuestionIndex < 0 || appState.currentQuestionIndex >= appState.studyList.length) {
-        console.warn("displayCurrentQuestion: Invalid studyList or index. Ending study session.", appState.studyList, appState.currentQuestionIndex);
-        showStudyCompletion(); // Show completion screen as there are no more valid questions
-        return;
-    }
-
     const questionData = appState.studyList[appState.currentQuestionIndex];
-
-    // Validate the current question data structure
-    if (!questionData || typeof questionData !== 'object' || !questionData.question || !Array.isArray(questionData.options) || questionData.options.length < 2 || !questionData.correctAnswer) {
-        console.error(`displayCurrentQuestion: Invalid or incomplete question data at index ${appState.currentQuestionIndex}. Skipping.`, questionData);
-        showNotification(`問題 ${appState.currentQuestionIndex + 1} のデータが不正なためスキップします。`, "warning", 5000);
-        appState.currentQuestionIndex++; // Move to the next index
-        // Immediately try to display the next question
-        // Use setTimeout to avoid potential call stack issues if many questions are invalid
-        setTimeout(displayCurrentQuestion, 0);
+    if (!questionData || !isValidQuestion(questionData)) {
+         console.error(`Skipping invalid question data at index ${appState.currentQuestionIndex}:`, questionData);
+         showNotification(`問題 ${appState.currentQuestionIndex + 1} のデータ形式が不正なためスキップします。`, 'warning');
+         moveToNextQuestion(); // Skip and move on
         return;
     }
 
-    console.log("displayCurrentQuestion: Displaying question:", questionData.id);
+    console.log(`Displaying question ${appState.currentQuestionIndex + 1}/${appState.studyList.length} (ID: ${questionData.id})`);
 
-    try {
-        // Reset UI state for the new question
-        dom.answerArea.style.display = 'none';
-        dom.evaluationControls.style.display = 'none';
-        dom.feedbackMessage.textContent = '';
-        dom.feedbackMessage.className = 'feedback-message'; // Reset feedback style
-        dom.studyCard.classList.remove('correct-answer', 'incorrect-answer'); // Reset card style
-        dom.retryButton.style.display = 'none'; // Hide retry button
-        if (dom.evalButtons) dom.evalButtons.forEach(btn => btn.disabled = false); // Re-enable eval buttons
-
-        // Update question counter and text
-        dom.questionCounter.textContent = `${appState.currentQuestionIndex + 1} / ${appState.studyList.length}`;
-        dom.questionText.textContent = questionData.question;
-
-        // Clear and populate options
-        dom.optionsButtonsContainer.innerHTML = ''; // Clear previous options
-        dom.optionsButtonsContainer.setAttribute('aria-busy', 'true'); // Indicate loading
-
-        // ★ Shuffle options if setting is enabled (correct implementation)
-        const optionsSource = questionData.options;
-        const optionsToDisplay = appState.settings.shuffleOptions
-            ? shuffleArray([...optionsSource]) // Shuffle a copy
-            : [...optionsSource]; // Use original order (still copy)
+    // Reset UI state for the new question
+     dom.optionsButtonsContainer.innerHTML = ''; // Clear options
+    dom.optionsButtonsContainer.setAttribute('aria-busy', 'true');
+     if(dom.answerArea) dom.answerArea.style.display = 'none';
+     if(dom.evaluationControls) dom.evaluationControls.style.display = 'none';
+     if(dom.feedbackMessage) dom.feedbackMessage.textContent = '';
+     if(dom.feedbackContainer) dom.feedbackContainer.className = 'feedback-container';
+     if(dom.studyCard) dom.studyCard.classList.remove('correct-answer', 'incorrect-answer');
+     if(dom.retryButton) dom.retryButton.style.display = 'none';
+    if (dom.evalButtons) dom.evalButtons.forEach(btn => btn.disabled = false); // Re-enable eval buttons
 
 
-        if (!Array.isArray(optionsToDisplay)) {
-             console.error("displayCurrentQuestion: Options became invalid after shuffle/copy.", optionsToDisplay);
-             throw new Error("選択肢の準備に失敗しました。");
-        }
+     // Display Question Text & Counter
+    safeSetText(dom.questionCounter, `${appState.currentQuestionIndex + 1} / ${appState.studyList.length}`);
+    safeSetText(dom.questionText, questionData.question);
 
-        const fragment = document.createDocumentFragment();
-        optionsToDisplay.forEach((optionText) => {
-            const button = document.createElement('button');
-            button.textContent = optionText;
-            button.type = 'button';
-            button.classList.add('button', 'option-button');
-            button.dataset.optionValue = optionText; // Store original value for checking answer
-            fragment.appendChild(button);
-        });
-        dom.optionsButtonsContainer.appendChild(fragment);
-        dom.optionsButtonsContainer.removeAttribute('aria-busy'); // Done loading
 
-        // Prepare answer and explanation text (but keep them hidden initially)
-        dom.answerText.textContent = questionData.correctAnswer || '正解情報なし';
-        dom.explanationText.textContent = questionData.explanation || '解説はありません。';
-
-        // Focus the first option button for accessibility
-        const firstOptionButton = dom.optionsButtonsContainer.querySelector('.option-button');
-        if (firstOptionButton) {
-             // Use setTimeout to ensure focus works after rendering
-             setTimeout(() => firstOptionButton.focus(), 0);
-        }
-
-    } catch (uiError) {
-         console.error("Error updating study UI:", uiError);
-         showNotification(`問題の表示中にエラーが発生しました: ${uiError.message}`, "error");
-         resetStudyState();
-         navigateToScreen('home-screen');
-         return;
+    // Prepare and Display Options (Shuffle if enabled)
+    let options = [...questionData.options];
+    if (appState.settings.shuffleOptions) {
+        options = shuffleArray(options);
+        console.log("Options shuffled.");
     }
-    console.log(`displayCurrentQuestion END - UI updated for question ${appState.currentQuestionIndex + 1}`);
+
+    const fragment = document.createDocumentFragment();
+    options.forEach((optionText, index) => {
+        const button = createButton({
+            text: escapeHtml(optionText), // Ensure text is escaped
+             class: 'option-button',
+             data: { 'option-value': optionText }, // Use original value for comparison
+             ariaLabel: `選択肢 ${index + 1}: ${optionText}`
+         });
+         fragment.appendChild(button);
+     });
+     dom.optionsButtonsContainer.appendChild(fragment);
+    dom.optionsButtonsContainer.removeAttribute('aria-busy');
+
+    // Prepare Answer/Explanation (but keep hidden)
+    safeSetText(dom.answerText, questionData.correctAnswer);
+    safeSetText(dom.explanationText, questionData.explanation || '解説はありません。');
+
+    // Focus the first option button for accessibility
+    const firstOption = dom.optionsButtonsContainer.querySelector('.option-button');
+     if (firstOption) {
+         setTimeout(() => firstOption.focus(), 50); // Slight delay for render
+     }
+     // Ensure progress bar is updated
+     updateStudyProgress();
 }
 
-/**
- * 選択肢ボタンがクリックされたときの処理 (イベント委任)
- * @param {MouseEvent} event
- */
-function handleOptionButtonClick(event) {
-    const clickedButton = event.target.closest('button.option-button');
-    if (!clickedButton || clickedButton.disabled) {
-        return; // Ignore clicks on disabled buttons or outside buttons
-    }
+/** 学習進捗バーとテキストを更新 */
+function updateStudyProgress() {
+    if (!dom.studyProgressBar || !dom.studyProgressText) return;
+    const total = appState.studyList.length;
+    const current = appState.currentQuestionIndex; // 0-based
 
-    // Disable all option buttons immediately to prevent multiple clicks
-    const allOptionButtons = dom.optionsButtonsContainer.querySelectorAll('.option-button');
-    allOptionButtons.forEach(btn => btn.disabled = true);
+    if (total > 0 && current >= 0) {
+        const progressPercent = Math.round(((current + 1) / total) * 100);
+         dom.studyProgressBar.value = current + 1; // Current question number
+         dom.studyProgressBar.max = total;       // Total questions
+        safeSetText(dom.studyProgressText, `${current + 1} / ${total} (${progressPercent}%)`);
+        if (dom.studyProgressContainer) dom.studyProgressContainer.style.visibility = 'visible';
+    } else {
+        // Hide progress if study hasn't started or list is empty
+         dom.studyProgressBar.value = 0;
+         dom.studyProgressBar.max = 100;
+         safeSetText(dom.studyProgressText, '');
+        if (dom.studyProgressContainer) dom.studyProgressContainer.style.visibility = 'hidden';
+    }
+}
+
+/** 選択肢ボタンクリック時のハンドラ */
+function handleOptionButtonClick(event) {
+    const clickedButton = event.target.closest('.option-button');
+    if (!clickedButton || clickedButton.disabled) return;
+
+    // Disable all options immediately
+    const allOptions = dom.optionsButtonsContainer.querySelectorAll('.option-button');
+    allOptions.forEach(btn => btn.disabled = true);
 
     const selectedOption = clickedButton.dataset.optionValue;
-    const questionData = appState.studyList?.[appState.currentQuestionIndex];
+    const questionData = appState.studyList[appState.currentQuestionIndex];
+     if (!questionData || !questionData.correctAnswer) {
+         console.error("Answer handling error: Invalid question data.");
+         showNotification("解答処理エラーが発生しました。", "error");
+         // Re-enable buttons or end study?
+         allOptions.forEach(btn => btn.disabled = false);
+         return;
+     }
 
-    // Ensure we have valid question data
-    if (!questionData || !questionData.correctAnswer) {
-        console.error("handleOptionSelect: Cannot get current question data or correct answer.");
-        showNotification("解答処理中にエラーが発生しました。", "error");
-        // Re-enable buttons? Or navigate away? Re-enabling might be confusing.
-        allOptionButtons.forEach(btn => btn.disabled = false); // Re-enable for now
-        return;
-    }
-    const correctAnswer = questionData.correctAnswer;
-
-    // Process the submission
-    handleAnswerSubmission(selectedOption, correctAnswer);
+    handleAnswerSubmission(selectedOption, questionData.correctAnswer);
 }
 
-/**
- * 解答提出後の処理（正誤判定、UI更新、履歴記録準備）
- * @param {string} selectedOption ユーザーが選択した選択肢
- * @param {string} correctAnswer 正解の選択肢
- */
+/** 解答提出後の処理 */
 function handleAnswerSubmission(selectedOption, correctAnswer) {
-     // Ensure required UI elements exist
-     if (!dom.studyCard || !dom.feedbackMessage || !dom.answerArea || !dom.retryButton || !dom.evaluationControls || !dom.optionsButtonsContainer) {
-        console.error("handleAnswerSubmission: Required UI elements for feedback are missing.");
-        return; // Cannot proceed
-    }
-    const questionData = appState.studyList?.[appState.currentQuestionIndex];
-    if (!questionData) {
-        console.error("handleAnswerSubmission: Question data is missing for current index.");
-        return; // Cannot proceed
-    }
-
     const isCorrect = selectedOption === correctAnswer;
+    const questionData = appState.studyList[appState.currentQuestionIndex];
+     if (!questionData || !dom.studyCard || !dom.feedbackMessage || !dom.feedbackContainer || !dom.answerArea || !dom.evaluationControls || !dom.optionsButtonsContainer || !dom.retryButton) {
+         console.error("Feedback display error: Missing elements or data.");
+         return;
+     }
 
-    // Update session stats (these are used for completion message AND session history)
+    console.log(`Answer submitted: Selected="${selectedOption}", Correct="${correctAnswer}", Result=${isCorrect}`);
+
+    // Update stats & UI feedback
     if (isCorrect) {
-        appState.stats.currentSessionCorrect++;
-        dom.studyCard.classList.remove('incorrect-answer'); // Ensure incorrect is removed
+        appState.studyStats.currentSessionCorrect++;
         dom.studyCard.classList.add('correct-answer');
-        dom.feedbackMessage.textContent = '✨ 正解！ ✨';
-        dom.feedbackMessage.className = 'feedback-message correct';
-        dom.retryButton.style.display = 'none'; // Hide retry on correct
+        dom.studyCard.classList.remove('incorrect-answer');
+        safeSetText(dom.feedbackMessage.querySelector('span'), '正解！');
+        dom.feedbackContainer.className = 'feedback-container correct'; // Use container class
+        dom.feedbackIcon.className = 'feedback-icon fas fa-check-circle'; // Specific icon
+         dom.retryButton.style.display = 'none';
     } else {
-        appState.stats.currentSessionIncorrect++;
-        dom.studyCard.classList.remove('correct-answer'); // Ensure correct is removed
+        appState.studyStats.currentSessionIncorrect++;
         dom.studyCard.classList.add('incorrect-answer');
-        dom.feedbackMessage.textContent = '🤔 不正解... 正解は下に表示されています。';
-        dom.feedbackMessage.className = 'feedback-message incorrect';
-        dom.retryButton.style.display = 'inline-block'; // Show retry on incorrect
+        dom.studyCard.classList.remove('correct-answer');
+        safeSetText(dom.feedbackMessage.querySelector('span'), '不正解...');
+         dom.feedbackContainer.className = 'feedback-container incorrect'; // Use container class
+         dom.feedbackIcon.className = 'feedback-icon fas fa-times-circle'; // Specific icon
+         dom.retryButton.style.display = 'inline-block'; // Show retry
     }
 
     // Highlight correct/incorrect options visually
-    dom.optionsButtonsContainer.querySelectorAll('.option-button').forEach(button => {
-        const buttonOption = button.dataset.optionValue;
-        button.classList.remove('success', 'danger'); // Reset first
-        button.style.opacity = '1'; // Reset opacity
+     dom.optionsButtonsContainer.querySelectorAll('.option-button').forEach(button => {
+         const optionVal = button.dataset.optionValue;
+         button.classList.remove('success', 'danger'); // Reset
+         if (optionVal === correctAnswer) button.classList.add('success');
+         else if (optionVal === selectedOption) button.classList.add('danger');
+         else button.style.opacity = '0.5'; // Fade others
+     });
 
-        if (buttonOption === correctAnswer) {
-            button.classList.add('success'); // Mark correct green
-        } else if (buttonOption === selectedOption) {
-            button.classList.add('danger'); // Mark selected incorrect red
-        } else {
-            // Optionally fade out other incorrect options
-            button.style.opacity = '0.6';
-        }
+    // Show answer and evaluation panel
+     dom.answerArea.style.display = 'block';
+     dom.evaluationControls.style.display = 'flex'; // Show eval panel
+
+    // Scroll and focus
+     dom.evaluationControls.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+     setTimeout(() => dom.evaluationControls.querySelector('.eval-button')?.focus(), 50);
+}
+
+/** 理解度評価ボタンクリックハンドラ */
+function handleEvaluation(event) {
+     const evalButton = event.target.closest('.eval-button');
+     if (!evalButton || evalButton.disabled) return;
+
+     const evaluation = evalButton.dataset.levelChange;
+     if (!evaluation || !['difficult', 'normal', 'easy'].includes(evaluation)) return;
+
+     // Disable all eval buttons
+     if (dom.evalButtons) dom.evalButtons.forEach(btn => btn.disabled = true);
+
+     const questionIndexInStudyList = appState.currentQuestionIndex;
+     const questionData = appState.studyList?.[questionIndexInStudyList];
+     const isCorrect = dom.feedbackContainer?.classList.contains('correct') ?? false;
+
+     if (!questionData || !questionData.id || !appState.currentDeckId) {
+         console.error("Evaluation error: Missing context data.");
+          if (dom.evalButtons) dom.evalButtons.forEach(btn => btn.disabled = false); // Re-enable on error
+         return;
+     }
+
+    // Update history in the main deck data
+     const success = recordQuestionHistory(appState.currentDeckId, questionData.id, isCorrect, evaluation);
+
+    if (success) {
+        moveToNextQuestion();
+    } else {
+         // History recording failed (likely save error), keep eval buttons disabled? Re-enable?
+         showNotification("学習履歴の保存に失敗しました。", "error");
+          if (dom.evalButtons) dom.evalButtons.forEach(btn => btn.disabled = false); // Re-enable on failure
+     }
+}
+
+/** 問題の解答履歴を記録し、デッキデータを保存 */
+function recordQuestionHistory(deckId, questionId, isCorrect, evaluation) {
+    const deck = appState.allDecks[deckId];
+     if (!deck) { console.error(`History Error: Deck ${deckId} not found.`); return false; }
+    const questionInDeck = deck.questions?.find(q => q.id === questionId);
+     if (!questionInDeck) { console.error(`History Error: Question ${questionId} not found in deck ${deckId}.`); return false; }
+
+    if (!Array.isArray(questionInDeck.history)) questionInDeck.history = [];
+    questionInDeck.history.push({
+        ts: Date.now(),
+        correct: isCorrect,
+        evaluation: evaluation,
     });
 
-    // Show answer and explanation
-    dom.answerText.textContent = correctAnswer || '正解情報なし';
-    dom.explanationText.textContent = questionData.explanation || '解説はありません。';
-    dom.answerArea.style.display = 'block';
-    // Scroll to the answer smoothly
-    dom.answerArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // Update deck-level stats immediately? No, these are cumulative, let dashboard calculate.
+    // Update only last studied time.
+    deck.lastStudied = Date.now();
 
-    // Show evaluation controls and focus the first one
-    dom.evaluationControls.style.display = 'block'; // Use block instead of flex if it's just buttons
-    const firstEvalButton = dom.evaluationControls.querySelector('.eval-button');
-    if(firstEvalButton) {
-         setTimeout(() => firstEvalButton.focus(), 0); // Timeout for focus
-    }
+     // Save the entire updated decks object
+     if (!saveData(LS_KEYS.DECKS, appState.allDecks)) {
+         // Attempt to rollback history add on save failure
+         questionInDeck.history.pop();
+         console.error("History Save Failed: Could not save updated deck data.");
+         return false; // Indicate failure
+     }
+
+    console.log(`History recorded for Q:${questionId}, Correct:${isCorrect}, Eval:${evaluation}`);
+    return true; // Indicate success
 }
 
 
-/**
- * 理解度評価ボタンがクリックされたときの処理
- * @param {MouseEvent} event - クリックイベント
- */
-function handleEvaluation(event) {
-    const evalButton = event.target.closest('.eval-button');
-    if (!evalButton || evalButton.disabled) return;
-
-    const evaluation = evalButton.dataset.levelChange;
-    // Validate evaluation value
-    if (!evaluation || !['difficult', 'normal', 'easy'].includes(evaluation)) {
-        console.warn("Invalid evaluation level on button:", evalButton);
-        return;
-    }
-
-    // Disable all evaluation buttons to prevent multiple submissions
-    if (dom.evalButtons) dom.evalButtons.forEach(btn => btn.disabled = true);
-
-    const deckId = appState.currentDeckId;
-    const questionIndexInStudyList = appState.currentQuestionIndex;
-
-    // --- Data Validation ---
-    if (!deckId || !appState.allDecks[deckId]) {
-        console.error("handleEvaluation: Current deck ID or deck data is invalid.");
-        if (dom.evalButtons) dom.evalButtons.forEach(btn => btn.disabled = false); // Re-enable on error
-        return;
-    }
-    if (!Array.isArray(appState.studyList) || questionIndexInStudyList < 0 || questionIndexInStudyList >= appState.studyList.length) {
-        console.error("handleEvaluation: Invalid studyList or index.", appState.studyList, questionIndexInStudyList);
-        if (dom.evalButtons) dom.evalButtons.forEach(btn => btn.disabled = false);
-        return;
-    }
-    const questionDataFromStudyList = appState.studyList[questionIndexInStudyList];
-    const questionId = questionDataFromStudyList?.id;
-    if (!questionId) {
-        console.error("handleEvaluation: Question ID not found in the current study list item:", questionDataFromStudyList);
-        if (dom.evalButtons) dom.evalButtons.forEach(btn => btn.disabled = false);
-        return;
-    }
-
-    // Determine if the answer was correct (based on feedback message style)
-    const isCorrect = dom.feedbackMessage?.classList.contains('correct') ?? false;
-
-    // Find the corresponding question in the main deck data
-    const deck = appState.allDecks[deckId];
-    const questionInDeck = deck.questions.find(q => q.id === questionId);
-
-    if (questionInDeck) {
-        // Ensure history array exists
-        if (!Array.isArray(questionInDeck.history)) {
-            questionInDeck.history = [];
-        }
-        // Add new history entry
-        questionInDeck.history.push({
-            ts: Date.now(),
-            correct: isCorrect,
-            evaluation: evaluation // Store the selected evaluation
-        });
-        console.log(`History added for question ${questionId}: correct=${isCorrect}, evaluation=${evaluation}`);
-
-        // Update cumulative stats (only if this evaluation corresponds to a new answer)
-        // This logic was complex in V2. Let's simplify: Assume evaluation *always* follows an answer.
-        // The stats (correct/incorrect) are updated in handleAnswerSubmission.
-        // Here, we mainly update lastStudied.
-        deck.lastStudied = Date.now();
-
-        // Save the updated deck data
-        if (!saveData(LS_KEYS.DECKS, appState.allDecks)) {
-            console.error("Failed to save history update to LocalStorage.");
-            showNotification("学習履歴の保存に失敗しました。", "error");
-            // Optionally rollback the history push?
-            // questionInDeck.history.pop();
-            if (dom.evalButtons) dom.evalButtons.forEach(btn => btn.disabled = false); // Re-enable on save failure
-            return;
-        }
-    } else {
-        // This should ideally not happen if data is consistent
-        console.error(`handleEvaluation: Question with ID ${questionId} not found in deck ${deckId}. History not saved.`);
-        showNotification("問題データの不整合が発生しました。履歴が保存できません。", "error");
-        if (dom.evalButtons) dom.evalButtons.forEach(btn => btn.disabled = false);
-        return;
-    }
-
-    // Move to the next question or finish session
+/** 次の問題へ移動、または学習完了処理を呼び出す */
+function moveToNextQuestion() {
     appState.currentQuestionIndex++;
-    if (appState.currentQuestionIndex < appState.studyList.length) {
-        displayCurrentQuestion(); // Display the next question
-    } else {
-        showStudyCompletion(); // Show completion screen
-    }
+     if (appState.currentQuestionIndex < appState.studyList.length) {
+         displayCurrentQuestion();
+     } else {
+         showStudyCompletion();
+     }
 }
 
 
-/** 学習セッション完了時の処理 */
+/** 学習セッション完了処理 */
 function showStudyCompletion() {
-    console.log("showStudyCompletion called. Session results:", appState.stats);
+     if (!dom.studyCompleteMessage || !dom.studyCard || !dom.evaluationControls || !dom.quitStudyHeaderButton || !dom.sessionCorrectCount || !dom.sessionIncorrectCount) {
+         console.error("Completion display error: Missing elements.");
+         resetStudyState();
+         navigateToScreen('home-screen');
+         return;
+     }
+    console.log("Study session completed. Stats:", appState.studyStats);
+     appState.isStudyActive = false; // Mark study as inactive
 
-    // Ensure required UI elements exist
-    const requiredElements = ['studyCompleteMessage', 'sessionCorrectCount', 'sessionIncorrectCount', 'studyCard', 'evaluationControls', 'quitStudyButton', 'backToTopButton'];
-    const missingElements = requiredElements.filter(key => !dom[key] || !document.body.contains(dom[key]));
-    if (missingElements.length > 0) {
-        console.error(`showStudyCompletion: Required UI elements missing: ${missingElements.join(', ')}`);
-        showNotification("学習完了画面の表示に必要な要素が見つかりません。", "error");
-        resetStudyState(); // Clean up state
-        navigateToScreen('home-screen'); // Navigate away
-        return;
-    }
-
-    const deckId = appState.currentDeckId;
-    // Save session history if the deck exists and questions were answered
-    if (deckId && appState.allDecks[deckId]) {
-         const deck = appState.allDecks[deckId];
-         if (!Array.isArray(deck.sessionHistory)) deck.sessionHistory = [];
-         // Record session result only if questions were actually answered in this session
-         if (appState.stats.currentSessionCorrect > 0 || appState.stats.currentSessionIncorrect > 0) {
-             deck.sessionHistory.push({
-                 ts: Date.now(), // Timestamp of completion
-                 correct: appState.stats.currentSessionCorrect,
-                 incorrect: appState.stats.currentSessionIncorrect
-             });
-             // Attempt to save the updated deck data with the new session history
-             if (!saveData(LS_KEYS.DECKS, appState.allDecks)) {
-                  console.error("Failed to save session history to LocalStorage on completion.");
-                  // Don't necessarily need to notify user about session history save failure
-                  // showNotification("セッション履歴の保存に失敗しました。", "warning");
-             } else {
-                  console.log("Session history saved on completion for deck:", deckId);
-             }
-         } else {
-            console.log("Skipping session history save on completion as no questions were answered in this session.");
-         }
-    } else {
-        console.warn("showStudyCompletion: Could not save session history, current deck not found or invalid:", deckId);
-    }
+    // Save session history
+    saveSessionHistory();
 
     // Hide study elements, show completion message
     dom.studyCard.style.display = 'none';
     dom.evaluationControls.style.display = 'none';
-    dom.quitStudyButton.style.display = 'none'; // Hide quit button on completion
+    dom.quitStudyHeaderButton.style.display = 'none'; // Hide quit button
+     if(dom.studyProgressContainer) dom.studyProgressContainer.style.visibility = 'hidden'; // Hide progress
 
-    // Display session results
-    dom.sessionCorrectCount.textContent = appState.stats.currentSessionCorrect;
-    dom.sessionIncorrectCount.textContent = appState.stats.currentSessionIncorrect;
-    dom.studyCompleteMessage.style.display = 'block'; // Show completion message
-    // Focus the completion message container or button for accessibility
-    dom.studyCompleteMessage.focus();
 
-    // Important: Reset the study list and index *after* saving session, preparing for next study
-    resetStudyState();
+    // Display results
+     safeSetText(dom.sessionCorrectCount, appState.studyStats.currentSessionCorrect);
+     safeSetText(dom.sessionIncorrectCount, appState.studyStats.currentSessionIncorrect);
+     dom.studyCompleteMessage.style.display = 'block';
+     dom.studyCompleteMessage.focus(); // Focus the message area
 
-    // Update home screen display as stats might have changed
-    updateTopScreenDisplay();
-    updateDeckListUI();
+
+    // Reset list/index for next session (stats are kept until next session starts)
+     appState.studyList = [];
+     appState.currentQuestionIndex = -1;
+
+    // Update home screen (may have new stats/last studied)
+     updateHomeUI(true);
 }
 
-/** 現在の問題にもう一度挑戦する */
-function retryCurrentQuestion() {
-    // Ensure required UI elements exist
-    if (!dom.answerArea || !dom.evaluationControls || !dom.feedbackMessage || !dom.studyCard || !dom.optionsButtonsContainer || !dom.retryButton) {
-         console.error("retryCurrentQuestion: Missing required UI elements.");
-         return;
-    }
-    // Check if there is a valid question to retry
-    if (appState.currentQuestionIndex >= 0 && appState.currentQuestionIndex < appState.studyList?.length) {
-        console.log("Retrying question:", appState.currentQuestionIndex + 1);
+/** 現在のセッション履歴を保存 */
+function saveSessionHistory() {
+    const deckId = appState.currentDeckId;
+    const deck = appState.allDecks[deckId];
+    if (!deck) return; // No deck to save history for
 
-        // Adjust session stats (decrease incorrect count for this *attempt*)
-        // This makes the completion message reflect only the *final* outcome of the question in the session.
-        // Cumulative stats (totalCorrect/totalIncorrect) are handled by the *next* answer submission.
-        if (!dom.feedbackMessage.classList.contains('correct')) { // Only decrement if it was marked incorrect
-            appState.stats.currentSessionIncorrect = Math.max(0, appState.stats.currentSessionIncorrect - 1);
-            console.log("Session stats adjusted for retry (incorrect decremented):", appState.stats);
-        }
+    // Save only if questions were answered in this session
+    const { currentSessionCorrect, currentSessionIncorrect } = appState.studyStats;
+    if (currentSessionCorrect > 0 || currentSessionIncorrect > 0) {
+        if (!Array.isArray(deck.sessionHistory)) deck.sessionHistory = [];
+         deck.sessionHistory.push({
+             ts: Date.now(),
+             correct: currentSessionCorrect,
+             incorrect: currentSessionIncorrect
+         });
+         // lastStudied is updated on each answer record, no need here?
+         // Maybe update it here *again* to ensure it's set on session end/quit?
+         deck.lastStudied = Date.now();
 
-        // Reset UI to the state before answering
-        dom.answerArea.style.display = 'none';
-        dom.evaluationControls.style.display = 'none';
-        dom.feedbackMessage.textContent = '';
-        dom.feedbackMessage.className = 'feedback-message'; // Reset feedback style
-        dom.studyCard.classList.remove('correct-answer', 'incorrect-answer'); // Reset card style
-        dom.retryButton.style.display = 'none'; // Hide retry button itself
-
-        // Re-enable and reset option buttons
-        dom.optionsButtonsContainer.querySelectorAll('.option-button').forEach(button => {
-            button.disabled = false;
-            button.classList.remove('success', 'danger'); // Remove result highlighting
-            button.style.opacity = '1'; // Restore full opacity
-        });
-
-        // Focus the first option button again
-        const firstOptionButton = dom.optionsButtonsContainer.querySelector('.option-button');
-        if (firstOptionButton) {
-             setTimeout(() => firstOptionButton.focus(), 0);
-        }
+        // Save updated deck data (session history included)
+         if (!saveData(LS_KEYS.DECKS, appState.allDecks)) {
+             console.error(`Failed to save session history for deck ${deckId}`);
+             // Don't necessarily show user-facing error for session save failure
+         } else {
+             console.log(`Session history saved for deck ${deckId}.`);
+         }
     } else {
-        console.warn("Cannot retry: Invalid question index or study list.");
+        console.log("Skipping session history save (no questions answered).");
     }
+     // Reset session stats for the next run (Important!)
+     appState.studyStats = { currentSessionCorrect: 0, currentSessionIncorrect: 0 };
 }
 
-/**
- * 学習の中断を確認し、必要に応じて履歴とセッション統計を保存してホーム画面に戻る
- * @param {boolean} showConfirmation - confirmダイアログを表示するかどうか (ナビゲーションやヘッダークリックからの呼び出しではfalse)
- * @returns {boolean} 中断処理が進行した(または確認不要だった)場合はtrue, ユーザーがキャンセルした場合はfalse
- */
-function confirmQuitStudy(showConfirmation = true) {
+/** 現在の問題を再挑戦する */
+function retryCurrentQuestion() {
+    if (!appState.isStudyActive || appState.currentQuestionIndex < 0 || !dom.answerArea || !dom.evaluationControls || !dom.retryButton || !dom.optionsButtonsContainer || !dom.feedbackContainer) {
+        console.warn("Cannot retry: Invalid state or missing elements.");
+        return;
+    }
+
+    // Don't adjust session stats here - let the *next* submission determine outcome
+     console.log(`Retrying question ${appState.currentQuestionIndex + 1}`);
+
+    // Reset UI to pre-answer state
+     dom.answerArea.style.display = 'none';
+     dom.evaluationControls.style.display = 'none';
+     dom.feedbackMessage.textContent = '';
+     dom.feedbackContainer.className = 'feedback-container'; // Reset feedback style
+     dom.studyCard.classList.remove('correct-answer', 'incorrect-answer');
+     dom.retryButton.style.display = 'none';
+
+     // Re-enable option buttons and remove styling
+     dom.optionsButtonsContainer.querySelectorAll('.option-button').forEach(button => {
+         button.disabled = false;
+         button.classList.remove('success', 'danger');
+         button.style.opacity = '1'; // Restore opacity
+     });
+
+    // Focus first option
+     const firstOption = dom.optionsButtonsContainer.querySelector('.option-button');
+     if(firstOption) setTimeout(() => firstOption.focus(), 50);
+}
+
+
+/** 学習の中断を確認し、必要に応じて画面遷移 */
+function confirmQuitStudy(showConfirmation = true, navigateTo = 'home-screen') {
     let quitConfirmed = false;
+    if (!appState.isStudyActive) return true; // Not studying, proceed
 
     if (showConfirmation) {
-        // ★ 確認メッセージを更新: セッション統計も保存されることを明記
-        quitConfirmed = confirm("現在の学習セッションを中断してホーム画面に戻りますか？\n\nここまでの解答履歴とセッション統計（正解/不正解数）は保存され、学習推移グラフに反映されます。\n\nよろしいですか？");
+        const result = confirm(
+             "学習セッションを中断しますか？\n\n" +
+             "ここまでの解答履歴とセッション統計は保存され、学習推移に反映されます。\n\n" +
+             "よろしいですか？"
+        );
+        quitConfirmed = result;
     } else {
-        // 確認不要の場合（ナビゲーションなど）は常に中断処理を進める
-        quitConfirmed = true;
+        quitConfirmed = true; // Allow programmatic quit without prompt
     }
 
-
     if (quitConfirmed) {
-        console.log("Processing study quit/interruption...");
+        console.log(`Processing study quit. Will navigate to: ${navigateTo}`);
+         appState.isStudyActive = false; // Mark as inactive *before* potential errors
 
-        const deckId = appState.currentDeckId;
-        // V2.2: Save session stats on interrupt
-        let deckDataChanged = false; // Flag to track if deck data needs saving
+         // Save session history *before* resetting state
+         saveSessionHistory();
 
-        // --- Session History Saving Logic ---
-        const sessionCorrect = appState.stats.currentSessionCorrect;
-        const sessionIncorrect = appState.stats.currentSessionIncorrect;
+        // Reset Study State (List, Index cleared. Stats were handled by saveSessionHistory)
+        appState.studyList = [];
+        appState.currentQuestionIndex = -1;
 
-        // Save session history if the deck exists and questions were answered
-        if ((sessionCorrect > 0 || sessionIncorrect > 0) && deckId && appState.allDecks[deckId]) {
-             const deck = appState.allDecks[deckId];
-             if (!Array.isArray(deck.sessionHistory)) deck.sessionHistory = [];
-             deck.sessionHistory.push({
-                 ts: Date.now(), // Timestamp of interruption
-                 correct: sessionCorrect,
-                 incorrect: sessionIncorrect
-             });
-             deck.lastStudied = Date.now(); // Update last studied on interrupt too
-             console.log(`Session history added on quit for deck ${deckId}: Correct=${sessionCorrect}, Incorrect=${sessionIncorrect}`);
-             deckDataChanged = true; // Mark data as changed for saving
-        } else {
-             console.log("Skipping session history save on quit: No questions answered or deck not found/invalid.");
-        }
 
-        // --- Save Deck Data (if changed) ---
-        if (deckDataChanged) {
-             if (!saveData(LS_KEYS.DECKS, appState.allDecks)) {
-                  console.error("Failed to save deck data (session history) on quit.");
-                  showNotification("中断時のセッション統計の保存に失敗しました。", "error");
-                  // Proceed with quit even if save fails, state might be inconsistent
-             } else {
-                  console.log("Deck data saved successfully on quit.");
-             }
-        }
+        // Reset Study Screen UI to default/inactive state
+         resetStudyScreenUI();
 
-        // --- Reset Study State and UI ---
-        resetStudyState(); // Resets list and index
+        // Navigate away
+        navigateToScreen(navigateTo);
+         showNotification("学習を中断しました。進行状況は保存されました。", "info", 3500);
+        // Update home screen stats (already forced by navigateToScreen if going home)
+         // updateHomeUI(true);
 
-        // Reset Study Screen UI elements to their default state
-        if(dom.studyCard) dom.studyCard.style.display = 'block'; // Show card area (though empty)
-        if(dom.evaluationControls) dom.evaluationControls.style.display = 'none';
-        if(dom.answerArea) dom.answerArea.style.display = 'none';
-        if(dom.studyCompleteMessage) dom.studyCompleteMessage.style.display = 'none';
-        if(dom.quitStudyButton) dom.quitStudyButton.style.display = 'none'; // Hide quit button
-        if(dom.questionText) dom.questionText.textContent = ''; // Clear question text
-        if(dom.questionCounter) dom.questionCounter.textContent = ''; // Clear counter
-        if(dom.optionsButtonsContainer) dom.optionsButtonsContainer.innerHTML = ''; // Clear options
-
-        // Navigate to Home Screen if confirmation was shown (otherwise handled by caller)
-        if (showConfirmation) {
-            navigateToScreen('home-screen');
-            showNotification("学習を中断しました。ここまでの統計は保存されました。", "info", 3500);
-        }
-
-        // Update potentially changed home screen info
-        updateTopScreenDisplay();
-        updateDeckListUI();
-
-        return true; // Quit processed
+        return true; // Quit proceeded
     } else {
-        console.log("Study quit cancelled by user.");
+        console.log("Study quit cancelled.");
         return false; // User cancelled
     }
 }
 
+/** 学習画面のUI要素をデフォルト状態に戻す */
+function resetStudyScreenUI() {
+    // Hide elements specific to active study
+     if(dom.quitStudyHeaderButton) dom.quitStudyHeaderButton.style.display = 'none';
+     if(dom.evaluationControls) dom.evaluationControls.style.display = 'none';
+     if(dom.answerArea) dom.answerArea.style.display = 'none';
+     if(dom.studyProgressContainer) dom.studyProgressContainer.style.visibility = 'hidden';
+     if(dom.studyCompleteMessage) dom.studyCompleteMessage.style.display = 'none';
 
-/** 学習完了画面からホーム画面に戻る */
-function handleBackToTop() {
-    console.log("Returning to home screen from completion screen.");
-    navigateToScreen('home-screen');
+    // Clear dynamic content
+    if(dom.studyScreenTitle) dom.studyScreenTitle.querySelector('span').textContent = '';
+    if(dom.questionText) dom.questionText.textContent = '';
+    if(dom.questionCounter) dom.questionCounter.textContent = '';
+    if(dom.optionsButtonsContainer) dom.optionsButtonsContainer.innerHTML = '';
+    if(dom.feedbackMessage) dom.feedbackMessage.textContent = '';
+    if(dom.feedbackContainer) dom.feedbackContainer.className = 'feedback-container';
+
+     // Ensure main card is visible for potential future content
+    if(dom.studyCard) dom.studyCard.style.display = 'block';
 }
 
-/** 学習セッションの状態(リストとインデックス)をリセットする */
+/** 学習状態を完全にリセット（UI含む） */
 function resetStudyState() {
-    appState.studyList = [];
-    appState.currentQuestionIndex = -1;
-    // Session stats (currentSessionCorrect/Incorrect) are NOT reset here.
-    // They are reset at the *start* of the next session in startStudy()
-    // or cleared when saving session history on completion/quit.
-    console.log("Study state reset (list and index cleared). Session stats remain until next use.");
-}
-
-
-// ====================================================================
-// 学習フィルター関連処理 (Study Filter Handling)
-// ====================================================================
-
-/** ホーム画面の学習フィルターラジオボタンが変更されたときのハンドラ */
-function handleStudyFilterChange(event) {
-    // Ensure the event target is a checked radio button within the filter group
-    if (event.target.checked && event.target.name === 'study-filter') {
-        appState.studyFilter = event.target.value;
-        console.log("Study filter changed to:", appState.studyFilter);
-        updateFilteredQuestionCount(); // Update count and button state
-    }
-}
-
-/**
- * 現在選択されているデッキとフィルターに基づいて、学習対象の問題リストを取得する
- * @returns {QuestionData[]} フィルターされた問題データの配列 (常に配列を返す)
- */
-function getFilteredStudyList() {
-    const deckId = appState.currentDeckId;
-    // Validate deck existence and questions array
-    if (!deckId || !appState.allDecks[deckId] || !Array.isArray(appState.allDecks[deckId].questions)) {
-        console.warn("getFilteredStudyList: Current deck or questions not available, returning empty array.");
-        return [];
-    }
-
-    const questions = appState.allDecks[deckId].questions;
-    const filter = appState.studyFilter;
-    const lowThreshold = appState.settings.lowAccuracyThreshold; // Use setting value
-
-    console.log(`getFilteredStudyList: Applying filter "${filter}" with threshold <= ${lowThreshold}% to ${questions.length} questions.`);
-
-    try {
-        let filteredQuestions;
-        switch (filter) {
-            case 'lowAccuracy':
-                filteredQuestions = questions.filter(q => {
-                    const history = q.history || [];
-                    if (history.length === 0) return false; // Needs history to calculate accuracy
-                    const correctCount = history.filter(h => h.correct).length;
-                    const accuracy = Math.round((correctCount / history.length) * 100);
-                    return accuracy <= lowThreshold; // Use threshold from settings
-                });
-                break;
-            case 'incorrect':
-                filteredQuestions = questions.filter(q => {
-                    const history = q.history || [];
-                    // Check the very last entry in history
-                    return history.length > 0 && history[history.length - 1].correct === false;
-                });
-                break;
-            case 'unanswered':
-                filteredQuestions = questions.filter(q => !q.history || q.history.length === 0);
-                break;
-            case 'difficult':
-            case 'normal':
-            case 'easy':
-                 filteredQuestions = questions.filter(q => {
-                     const history = q.history || [];
-                     // Check the evaluation of the very last entry
-                     return history.length > 0 && history[history.length - 1].evaluation === filter;
-                 });
-                break;
-            case 'all':
-            default: // Default to 'all' if filter value is unknown
-                filteredQuestions = [...questions]; // Return a copy of all questions
-                break;
-        }
-
-        // Ensure the result is always an array
-        if (!Array.isArray(filteredQuestions)) {
-            console.error(`getFilteredStudyList: Filtering result was not an array for filter "${filter}". Falling back to an empty array.`);
-            return [];
-        }
-
-        console.log(`getFilteredStudyList (Filter: ${filter}): Returning ${filteredQuestions.length} questions.`);
-        return filteredQuestions;
-
-    } catch (error) {
-        // Catch potential errors during filtering (e.g., unexpected data in history)
-        console.error(`Error in getFilteredStudyList with filter "${filter}":`, error);
-        showNotification("フィルター処理中にエラーが発生しました。", "error");
-        return []; // Return empty array on error
-    }
-}
-
-/** ホーム画面の「対象問題数」表示を更新し、学習開始ボタンの状態も更新する */
-function updateFilteredQuestionCount() {
-    // Check if the necessary elements exist
-    if (!dom.filteredQuestionCount || !dom.studyFilterOptions) {
-        // Even if count display is missing, update button state
-        updateStudyButtonsState();
-        return;
-    }
-
-    // If filter options are hidden (no deck selected), clear count and update button
-    if (dom.studyFilterOptions.style.display === 'none') {
-         dom.filteredQuestionCount.textContent = '';
-         updateStudyButtonsState();
-         return;
-    }
-
-    // Get the filtered list and update the display
-    try {
-        const filteredList = getFilteredStudyList();
-        dom.filteredQuestionCount.textContent = `対象問題数: ${filteredList.length}問`;
-    } catch (error) {
-        console.error("Error updating filtered question count:", error);
-        dom.filteredQuestionCount.textContent = "対象問題数: エラー";
-    } finally {
-        // Always update the button state after attempting to get the count
-        updateStudyButtonsState();
-    }
-}
-
-
-// ====================================================================
-// 設定関連処理 (Settings Handling)
-// ====================================================================
-
-/** 現在のアプリ設定を設定画面のUIに反映させる */
-function loadSettingsToUI() {
-    if (!dom.settingsContainer) return; // Exit if settings screen elements aren't cached
-    try {
-        // Shuffle Options Checkbox
-        if (dom.settingShuffleOptions) {
-            dom.settingShuffleOptions.checked = appState.settings.shuffleOptions;
-        } else {
-             console.warn("Shuffle options checkbox not found in DOM.");
-        }
-
-        // Low Accuracy Threshold Input
-        if (dom.settingLowAccuracyThreshold) {
-            dom.settingLowAccuracyThreshold.value = appState.settings.lowAccuracyThreshold;
-        } else {
-             console.warn("Low accuracy threshold input not found in DOM.");
-        }
-
-        // Also update the threshold display on the home screen filter label
-        if (dom.lowAccuracyThresholdDisplayFilter) {
-             dom.lowAccuracyThresholdDisplayFilter.textContent = appState.settings.lowAccuracyThreshold;
-        }
-
-    } catch (error) {
-        console.error("Error loading settings to UI:", error);
-        showNotification("設定のUIへの反映中にエラーが発生しました。", "error");
-    }
-}
-
-/** 設定画面での変更内容をアプリ状態とLocalStorageに保存する */
-function saveSettings() {
-    if (!dom.settingsContainer) return;
-    const statusElement = dom.settingsSaveStatus;
-    // Reset status message
-    if (statusElement) {
-        statusElement.textContent = '';
-        statusElement.className = 'status-message';
-    }
-
-    try {
-        let settingsChanged = false;
-        const originalSettings = { ...appState.settings }; // Backup original
-        const newSettings = { ...appState.settings }; // Create copy to modify
-
-        // 1. Read Shuffle Options
-        if (dom.settingShuffleOptions) {
-            newSettings.shuffleOptions = dom.settingShuffleOptions.checked;
-        }
-
-        // 2. Read and Validate Low Accuracy Threshold
-        let thresholdValid = true;
-        if (dom.settingLowAccuracyThreshold) {
-            const thresholdInput = dom.settingLowAccuracyThreshold.value;
-            const threshold = parseInt(thresholdInput, 10);
-
-            if (isNaN(threshold) || threshold < 1 || threshold > 99) {
-                thresholdValid = false;
-                // Revert input to current setting value on validation failure
-                dom.settingLowAccuracyThreshold.value = appState.settings.lowAccuracyThreshold;
-                showNotification('「苦手な問題」の閾値は1から99の間の整数で設定してください。元の値に戻しました。', 'warning', 5000);
-            } else {
-                 newSettings.lowAccuracyThreshold = threshold; // Use validated integer
-            }
-        } else {
-             console.warn("Low accuracy threshold input not found for saving.");
-             thresholdValid = false; // Cannot save if input missing
-        }
-
-        // 3. Check if settings actually changed (only if threshold was valid)
-        if (thresholdValid && JSON.stringify(newSettings) !== JSON.stringify(appState.settings)) {
-             settingsChanged = true;
-             appState.settings = newSettings; // Update app state
-        }
-
-        // 4. Save to LocalStorage if changed
-        if (settingsChanged) {
-            if (saveData(LS_KEYS.SETTINGS, appState.settings)) {
-                console.log("Settings saved:", appState.settings);
-                // Update UI elements affected by settings change
-                loadSettingsToUI(); // Re-apply to settings screen
-                updateFilteredQuestionCount(); // Update home screen filter count/button
-                // Update dashboard threshold displays if dashboard is visible? (Might be overkill)
-
-                if (statusElement) {
-                    statusElement.textContent = '設定を保存しました。';
-                    statusElement.className = 'status-message success';
-                }
-                showNotification('設定を保存しました。', 'success');
-            } else {
-                 // Save failed, revert app state
-                 appState.settings = originalSettings;
-                 loadSettingsToUI(); // Revert UI
-                 if (statusElement) {
-                    statusElement.textContent = '設定の保存に失敗しました。';
-                    statusElement.className = 'status-message error';
-                 }
-                 // Notification about failure is shown by saveData
-            }
-        } else if (thresholdValid) {
-            // No changes detected (and threshold was valid)
-            console.log("Settings not saved, no changes detected.");
-            if (statusElement) {
-                 statusElement.textContent = '変更はありませんでした。';
-                 statusElement.className = 'status-message info';
-            }
-            showNotification('設定に変更はありませんでした。', 'info', 2500);
-        }
-        // If threshold was invalid, a notification was already shown.
-
-        // Clear status message after a delay
-        setTimeout(() => {
-            if (statusElement) {
-                statusElement.textContent = '';
-                statusElement.className = 'status-message';
-            }
-        }, 3500);
-
-    } catch (error) {
-        console.error("Error saving settings:", error);
-        if (statusElement) {
-            statusElement.textContent = '設定の保存中にエラーが発生しました。';
-            statusElement.className = 'status-message error';
-        }
-        showNotification('設定の保存中に予期せぬエラーが発生しました。', 'error');
-    }
+     appState.isStudyActive = false;
+     appState.studyList = [];
+     appState.currentQuestionIndex = -1;
+     appState.studyStats = { currentSessionCorrect: 0, currentSessionIncorrect: 0 };
+     resetStudyScreenUI();
+     console.log("Full study state reset.");
 }
 
 // ====================================================================
-// AIプロンプトコピー機能 (AI Prompt Copy)
-// ====================================================================
-/** AI問題生成ガイド画面のプロンプトテキストをクリップボードにコピーする */
-function copyPromptToClipboard() {
-    const statusElement = dom.copyStatus;
-    const button = dom.copyPromptButton;
-    if (statusElement) statusElement.textContent = ''; // Clear previous status
-
-    // Check for Clipboard API support
-    if (!navigator.clipboard || !navigator.clipboard.writeText) {
-        showNotification('お使いのブラウザはクリップボード機能に対応していません。手動でコピーしてください。', 'warning', 5000);
-        if (statusElement) {
-            statusElement.textContent = 'ブラウザ未対応';
-            statusElement.className = 'status-message warning';
-        }
-        return;
-    }
-
-    // Check if prompt text element exists
-    if (!dom.promptText) {
-         showNotification('コピー対象のプロンプト要素が見つかりません。', 'error');
-         if (statusElement) {
-            statusElement.textContent = 'コピー対象なし';
-            statusElement.className = 'status-message error';
-         }
-         return;
-    }
-
-    const prompt = dom.promptText.textContent || '';
-    if (!prompt.trim()) {
-         showNotification('コピーするプロンプト内容が空です。', 'warning');
-         if (statusElement) {
-            statusElement.textContent = '内容が空です';
-            statusElement.className = 'status-message warning';
-         }
-         return;
-    }
-
-    // Disable button temporarily
-    if (button) button.disabled = true;
-
-    navigator.clipboard.writeText(prompt)
-        .then(() => {
-            // Success
-            if (statusElement) {
-                statusElement.textContent = 'コピーしました！';
-                statusElement.className = 'status-message success';
-                // Clear message after delay
-                setTimeout(() => { if(dom.copyStatus) { dom.copyStatus.textContent = ''; dom.copyStatus.className = 'status-message'; } }, 2500);
-            }
-            showNotification('プロンプトをクリップボードにコピーしました。', 'success', 2500);
-        })
-        .catch(err => {
-            // Error
-            console.error('Failed to copy prompt to clipboard: ', err);
-            if (statusElement) {
-                statusElement.textContent = 'コピー失敗';
-                statusElement.className = 'status-message error';
-            }
-            showNotification('プロンプトのコピーに失敗しました。手動でコピーしてください。', 'error', 5000);
-        })
-        .finally(() => {
-             // Re-enable button regardless of outcome
-             if (button) button.disabled = false;
-        });
-}
-
-
-// ====================================================================
-// ダッシュボード関連処理 (Dashboard Handling)
+// ダッシュボード関連処理 (Dashboard)
 // ====================================================================
 
-/** ダッシュボード画面のデッキ選択ドロップダウンを生成・更新する */
+/** ダッシュボードのデッキ選択ドロップダウンを更新 */
 function populateDashboardDeckSelect() {
     if (!dom.dashboardDeckSelect) return;
     const select = dom.dashboardDeckSelect;
-    // Store the currently selected value (in state or from dropdown)
-    const previouslySelectedValue = appState.currentDashboardDeckId || select.value;
+    const previouslySelected = appState.currentDashboardDeckId || select.value;
 
-    // Clear existing options except the placeholder
-    select.innerHTML = '<option value="">-- 問題集を選択してください --</option>';
+    select.innerHTML = '<option value="">-- 問題集を選択 --</option>'; // Placeholder
 
-    const deckIds = Object.keys(appState.allDecks);
-
-    // Sort deck IDs alphabetically by name for the dropdown
-    deckIds.sort((a, b) => {
-        const nameA = appState.allDecks[a]?.name || '';
-        const nameB = appState.allDecks[b]?.name || '';
-        return nameA.localeCompare(nameB, 'ja'); // Use localeCompare for proper sorting
-    });
+    const sortedDeckIds = Object.keys(appState.allDecks).sort((a, b) =>
+        (appState.allDecks[a]?.name || '').localeCompare(appState.allDecks[b]?.name || '', 'ja')
+    );
 
     const fragment = document.createDocumentFragment();
-    deckIds.forEach(deckId => {
-        const deck = appState.allDecks[deckId];
-        if (deck) { // Check if deck data actually exists
-            const option = document.createElement('option');
-            option.value = deckId;
-            option.textContent = `${deck.name || '名称未設定'} (${deck.questions?.length || 0}問)`;
-            fragment.appendChild(option);
-        }
+    sortedDeckIds.forEach(id => {
+         const deck = appState.allDecks[id];
+         if(deck) {
+             const opt = document.createElement('option');
+             opt.value = id;
+             opt.textContent = `${deck.name || '名称未設定'} (${deck.questions?.length ?? 0}問)`;
+             fragment.appendChild(opt);
+         }
     });
     select.appendChild(fragment);
 
-    // Restore previous selection if possible
-    if (previouslySelectedValue && appState.allDecks[previouslySelectedValue]) {
-         select.value = previouslySelectedValue;
-         // Ensure state matches the restored value
-         appState.currentDashboardDeckId = previouslySelectedValue;
-    } else {
-         // If previous selection is invalid or none, reset state
+    // Restore selection if possible
+     if (previouslySelected && appState.allDecks[previouslySelected]) {
+         select.value = previouslySelected;
+         appState.currentDashboardDeckId = previouslySelected; // Ensure state sync
+     } else {
          select.value = "";
-         appState.currentDashboardDeckId = null;
-    }
+          appState.currentDashboardDeckId = null;
+     }
+     toggleDashboardControlsBasedOnSize(); // Adjust controls on load
 }
 
-/** ダッシュボードのデッキ選択が変更されたときのハンドラ */
-function handleDashboardDeckChange() {
-    if (!dom.dashboardDeckSelect) return;
-    const selectedDeckId = dom.dashboardDeckSelect.value;
-    // Update state only if the selection actually changed
-    if (selectedDeckId !== appState.currentDashboardDeckId) {
-        appState.currentDashboardDeckId = selectedDeckId || null;
-        console.log("Dashboard deck selection changed to:", appState.currentDashboardDeckId);
-
-        // Reset filters and render the dashboard for the new deck
-        resetDashboardFiltersAndState();
-        renderDashboard(); // Re-render the entire dashboard content
-    }
+/** ダッシュボード: デッキ選択変更ハンドラ */
+function handleDashboardDeckChange(event) {
+     const selectedId = event.target.value;
+     if (selectedId !== appState.currentDashboardDeckId) {
+        appState.currentDashboardDeckId = selectedId || null;
+         console.log("Dashboard deck selection changed to:", appState.currentDashboardDeckId);
+         resetDashboardFiltersAndState(false); // Reset filters but keep deck
+         renderDashboard(); // Full re-render
+     }
 }
 
-/** ダッシュボードの正答率フィルターが変更されたときのハンドラ */
-function handleDashboardFilterChange() {
-    if (!dom.dashboardFilterAccuracy) return;
-    const newFilter = dom.dashboardFilterAccuracy.value;
-    if (newFilter !== appState.dashboardFilterAccuracy) {
-        appState.dashboardFilterAccuracy = newFilter;
-        appState.dashboardCurrentPage = 1; // Reset to page 1 on filter change
-        console.log("Dashboard filter changed to:", appState.dashboardFilterAccuracy);
-        renderDashboardQuestionAnalysis(); // Re-render only the analysis section
-    }
+/** ダッシュボード: コントロールパネルの表示/非表示トグル */
+function toggleDashboardControls() {
+     if (!dom.dashboardControlsToggle || !dom.dashboardAnalysisControlsPanel) return;
+     const isCollapsed = dom.dashboardAnalysisControlsPanel.classList.toggle('collapsed');
+     dom.dashboardControlsToggle.setAttribute('aria-expanded', String(!isCollapsed));
+     appState.isDashboardControlsCollapsed = isCollapsed; // Update state
+     console.log(`Dashboard controls toggled: ${isCollapsed ? 'Collapsed' : 'Expanded'}`);
 }
 
-/** ダッシュボードの検索入力が変更されたときのハンドラ (Input event) */
-function handleDashboardSearchInput() {
-    if (!dom.dashboardSearchQuery || !dom.dashboardSearchButton) return;
-    // Update state immediately as user types
-    const query = dom.dashboardSearchQuery.value.trim();
-    // Only update state if value actually changed (prevents unnecessary updates)
-    if (query !== appState.dashboardSearchQuery) {
-        appState.dashboardSearchQuery = query;
-        // Enable/disable search button based on query presence
-        dom.dashboardSearchButton.disabled = appState.dashboardSearchQuery === '';
-        // Optionally trigger search on input clearing if needed, but typically explicit search is better
-        // if (query === '' && appState.dashboardSearchQuery !== '') {
-        //     clearDashboardSearch();
-        // }
-    }
+/** 画面サイズに基づいてコントロールパネルの表示状態を調整 */
+function toggleDashboardControlsBasedOnSize() {
+     if (!dom.dashboardControlsToggle || !dom.dashboardAnalysisControlsPanel) return;
+     const isMobile = window.innerWidth <= 768; // Use mobile breakpoint
+     dom.dashboardControlsToggle.style.display = isMobile ? 'flex' : 'none';
+
+     if (isMobile) {
+         // If mobile, respect the toggled state (appState.isDashboardControlsCollapsed)
+         const shouldBeCollapsed = appState.isDashboardControlsCollapsed;
+         dom.dashboardAnalysisControlsPanel.classList.toggle('collapsed', shouldBeCollapsed);
+         dom.dashboardControlsToggle.setAttribute('aria-expanded', String(!shouldBeCollapsed));
+     } else {
+         // If not mobile, always ensure panel is expanded and toggle is hidden
+         dom.dashboardAnalysisControlsPanel.classList.remove('collapsed');
+         dom.dashboardControlsToggle.setAttribute('aria-expanded', 'true'); // Should be visible by default if button was shown
+     }
 }
 
-/** ダッシュボードの検索ボタンがクリックされたときのハンドラ */
+
+/** ダッシュボード: 正答率フィルター変更ハンドラ */
+function handleDashboardFilterChange(event) {
+    appState.dashboardFilterAccuracy = event.target.value;
+    appState.dashboardCurrentPage = 1; // Reset page
+    console.log("Dashboard filter changed:", appState.dashboardFilterAccuracy);
+    renderDashboardQuestionAnalysis(); // Only re-render analysis part
+}
+
+/** ダッシュボード: 検索入力ハンドラ (デバウンス済み) */
+function handleDashboardSearchInput(event) {
+    appState.dashboardSearchQuery = event.target.value.trim();
+    // Don't reset page or render immediately - wait for button click or Enter
+    if(dom.dashboardSearchButton) dom.dashboardSearchButton.disabled = !appState.dashboardSearchQuery;
+}
+
+/** ダッシュボード: 検索実行 */
 function applyDashboardSearch() {
-    console.log("Applying dashboard search query:", appState.dashboardSearchQuery);
-    // Check if button exists and is enabled (redundant if input handler works, but safe)
-    if (!dom.dashboardSearchButton || dom.dashboardSearchButton.disabled) {
-        return;
-    }
-    // Reset to page 1 and re-render analysis
-    appState.dashboardCurrentPage = 1;
-    renderDashboardQuestionAnalysis();
+     console.log("Applying dashboard search:", appState.dashboardSearchQuery);
+     appState.dashboardCurrentPage = 1; // Reset page
+     renderDashboardQuestionAnalysis(); // Re-render with search
 }
 
-/** ダッシュボードの検索クリアボタンがクリックされたときのハンドラ */
+/** ダッシュボード: 検索クリア */
 function clearDashboardSearch() {
-    // Clear input field
-    if (dom.dashboardSearchQuery) {
-        dom.dashboardSearchQuery.value = '';
-    }
-    // Disable search button
-    if (dom.dashboardSearchButton) {
-        dom.dashboardSearchButton.disabled = true;
-    }
-    // If the query was actually cleared, update state and re-render
-    if (appState.dashboardSearchQuery !== '') {
+     if (dom.dashboardSearchQuery) dom.dashboardSearchQuery.value = '';
+     if (dom.dashboardSearchButton) dom.dashboardSearchButton.disabled = true;
+     if (appState.dashboardSearchQuery !== '') {
          appState.dashboardSearchQuery = '';
-         appState.dashboardCurrentPage = 1; // Reset page
+         appState.dashboardCurrentPage = 1;
          console.log("Dashboard search cleared.");
-         renderDashboardQuestionAnalysis(); // Re-render analysis
-    }
+         renderDashboardQuestionAnalysis(); // Re-render without search
+     }
 }
 
-/** ダッシュボードのソート順が変更されたときのハンドラ */
-function handleDashboardSortChange() {
-    if (!dom.dashboardSortOrder) return;
-    const newSortOrder = dom.dashboardSortOrder.value;
-    if (newSortOrder !== appState.dashboardSortOrder) {
-        appState.dashboardSortOrder = newSortOrder;
-        appState.dashboardCurrentPage = 1; // Reset page on sort change
-        console.log("Dashboard sort order changed to:", appState.dashboardSortOrder);
-        renderDashboardQuestionAnalysis(); // Re-render analysis
-    }
-}
-
-/**
- * ダッシュボードの問題分析表示モード（リスト/グラフ）を切り替える
- * @param {'list'|'chart'} mode - 設定するモード
- */
-function setDashboardViewMode(mode) {
-    if (mode !== 'list' && mode !== 'chart') return; // Invalid mode
-    if (mode === appState.dashboardViewMode) return; // Already in this mode
-
-    appState.dashboardViewMode = mode;
-    console.log("Dashboard view mode set to:", mode);
-
-    const isListMode = mode === 'list';
-
-    // Update button appearance and aria states
-    if (dom.viewModeList) {
-        dom.viewModeList.classList.toggle('active', isListMode);
-        dom.viewModeList.setAttribute('aria-pressed', String(isListMode));
-    }
-    if (dom.viewModeChart) {
-        dom.viewModeChart.classList.toggle('active', !isListMode);
-        dom.viewModeChart.setAttribute('aria-pressed', String(!isListMode));
-    }
-
-    // Toggle visibility of the view containers
-    if (dom.questionListView) dom.questionListView.classList.toggle('active', isListMode);
-    if (dom.questionChartView) dom.questionChartView.classList.toggle('active', !isListMode);
-
-    // Re-render the analysis section to show the correct view
+/** ダッシュボード: ソート順変更ハンドラ */
+function handleDashboardSortChange(event) {
+    appState.dashboardSortOrder = event.target.value;
+    appState.dashboardCurrentPage = 1;
+    console.log("Dashboard sort order changed:", appState.dashboardSortOrder);
     renderDashboardQuestionAnalysis();
 }
 
-/** ダッシュボードのフィルター、ソート、ページング、表示モード等の状態をリセットする */
-function resetDashboardFiltersAndState() {
-    // Reset State Variables
-    appState.dashboardFilterAccuracy = 'all';
-    appState.dashboardSearchQuery = '';
-    appState.dashboardSortOrder = 'accuracyAsc';
-    appState.dashboardCurrentPage = 1;
-    appState.dashboardViewMode = 'list'; // Default to list view
+/** ダッシュボード: 表示件数変更ハンドラ */
+function handleDashboardItemsPerPageChange(event) {
+    const newCount = parseInt(event.target.value, 10);
+     if ([10, 20, 50, 100].includes(newCount)) {
+        appState.dashboardQuestionsPerPage = newCount;
+        // Persist this part of settings immediately? Or wait for Settings save?
+         appState.settings.dashboardQuestionsPerPage = newCount; // Update settings state
+         saveData(LS_KEYS.SETTINGS, appState.settings); // Save immediately
+        appState.dashboardCurrentPage = 1;
+        console.log("Dashboard items per page changed:", newCount);
+        renderDashboardQuestionAnalysis();
+    }
+}
+
+
+/** ダッシュボード: 表示モード（リスト/グラフ）設定 */
+function setDashboardViewMode(mode) {
+     if (mode !== 'list' && mode !== 'chart') return;
+     if (mode === appState.dashboardViewMode) return;
+
+     appState.dashboardViewMode = mode;
+     console.log("Dashboard view mode set to:", mode);
+
+     // Update button states
+     setActiveClass(dom.viewModeList, mode === 'list');
+     setAriaPressed(dom.viewModeList, mode === 'list');
+     setActiveClass(dom.viewModeChart, mode === 'chart');
+     setAriaPressed(dom.viewModeChart, mode === 'chart');
+
+     // Update view container visibility
+     setActiveClass(dom.questionListView, mode === 'list');
+     setActiveClass(dom.questionChartView, mode === 'chart');
+
+     // Re-render the analysis section to populate the selected view
+     renderDashboardQuestionAnalysis();
+}
+
+/** ダッシュボードのフィルター、ソート、ページ状態等をリセット */
+function resetDashboardFiltersAndState(resetDeckId = true) {
+    // Reset State
+     if (resetDeckId) appState.currentDashboardDeckId = null;
+     appState.dashboardFilterAccuracy = 'all';
+     appState.dashboardSearchQuery = '';
+     appState.dashboardSortOrder = 'accuracyAsc';
+     appState.dashboardCurrentPage = 1;
+     appState.dashboardViewMode = 'list'; // Default to list view
+     appState.dashboardQuestionsPerPage = appState.settings.dashboardQuestionsPerPage; // Reset to saved setting
+     appState.isDashboardControlsCollapsed = true; // Default collapsed on mobile
 
     // Reset UI Elements
-    if (dom.dashboardFilterAccuracy) dom.dashboardFilterAccuracy.value = 'all';
-    if (dom.dashboardSearchQuery) dom.dashboardSearchQuery.value = '';
-    if (dom.dashboardSearchButton) dom.dashboardSearchButton.disabled = true;
-    if (dom.dashboardSortOrder) dom.dashboardSortOrder.value = 'accuracyAsc';
+     if (resetDeckId && dom.dashboardDeckSelect) dom.dashboardDeckSelect.value = '';
+     if (dom.dashboardFilterAccuracy) dom.dashboardFilterAccuracy.value = 'all';
+     if (dom.dashboardSearchQuery) dom.dashboardSearchQuery.value = '';
+     if (dom.dashboardSearchButton) dom.dashboardSearchButton.disabled = true;
+     if (dom.dashboardSortOrder) dom.dashboardSortOrder.value = 'accuracyAsc';
+     if (dom.dashboardItemsPerPage) dom.dashboardItemsPerPage.value = appState.dashboardQuestionsPerPage.toString();
+     // Reset view mode buttons
+     setActiveClass(dom.viewModeList, true);
+     setAriaPressed(dom.viewModeList, true);
+     setActiveClass(dom.viewModeChart, false);
+     setAriaPressed(dom.viewModeChart, false);
+     // Reset view visibility
+     setActiveClass(dom.questionListView, true);
+     setActiveClass(dom.questionChartView, false);
+     // Reset collapse state based on current window size
+     toggleDashboardControlsBasedOnSize();
 
-    // Reset View Mode Buttons and Containers
-    if (dom.viewModeList) {
-        dom.viewModeList.classList.add('active');
-        dom.viewModeList.setAttribute('aria-pressed', 'true');
-    }
-    if (dom.viewModeChart) {
-        dom.viewModeChart.classList.remove('active');
-        dom.viewModeChart.setAttribute('aria-pressed', 'false');
-    }
-    if (dom.questionListView) dom.questionListView.classList.add('active');
-    if (dom.questionChartView) dom.questionChartView.classList.remove('active');
 
-    // Close detail view if open
-    closeQuestionDetailView();
-    console.log("Dashboard filters and state reset to defaults.");
+     // No need to close detail modal here as renderDashboard handles it implicitly.
+    console.log("Dashboard filters and display state reset.");
 }
 
-/**
- * ダッシュボード画面全体をレンダリングする
- */
+
+/** ダッシュボード画面全体をレンダリング */
 async function renderDashboard() {
-    const deckId = appState.currentDashboardDeckId;
-    console.log("renderDashboard called for deck:", deckId);
+     const deckId = appState.currentDashboardDeckId;
+     console.log(`Rendering dashboard for deck: ${deckId || 'None'}`);
 
-    // Check for essential dashboard containers
+    // Show loading overlay during dashboard rendering
+     updateLoadingOverlay(true, `ダッシュボード (${deckId ? appState.allDecks[deckId]?.name : '未選択'}) 読み込み中...`);
+
     if (!dom.dashboardContent || !dom.dashboardNoDeckMessage) {
-        console.error("renderDashboard: Dashboard container elements not found in DOM.");
-        return;
-    }
-
-    // Handle case where no deck is selected or deck data is missing
-    if (!deckId || !appState.allDecks[deckId]) {
-        dom.dashboardContent.style.display = 'none';
-        dom.dashboardNoDeckMessage.style.display = 'flex'; // Use flex for centered message
-        console.log("renderDashboard: No deck selected or deck data not found.");
-        // Destroy existing charts if any
-        if (studyTrendsChart) { studyTrendsChart.destroy(); studyTrendsChart = null; }
-        if (questionAccuracyChart) { questionAccuracyChart.destroy(); questionAccuracyChart = null; }
-        return;
-    }
-
-    // Show content, hide "no deck" message
-    dom.dashboardContent.style.display = 'block';
-    dom.dashboardNoDeckMessage.style.display = 'none';
-    const deck = appState.allDecks[deckId];
-
-    // Double-check deck data consistency (should be handled by repair, but good practice)
-    if (!deck) {
-         console.error("renderDashboard: Deck data inconsistency. Deck object not found for ID:", deckId);
-         dom.dashboardContent.style.display = 'none';
-         dom.dashboardNoDeckMessage.style.display = 'flex';
-         const messageSpan = dom.dashboardNoDeckMessage.querySelector('span'); // Assuming message is in a span
-         if (messageSpan) messageSpan.textContent = "選択された問題集データの読み込みエラー";
-         showNotification("選択された問題集データの読み込み中に予期せぬエラーが発生しました。", "error");
+         console.error("Dashboard elements missing!");
+         updateLoadingOverlay(false);
          return;
     }
 
-    showLoadingOverlay(true); // Show loading indicator for rendering process
+     // Handle "No Deck Selected" case
+     if (!deckId || !appState.allDecks[deckId]) {
+         dom.dashboardContent.style.display = 'none';
+         dom.dashboardNoDeckMessage.style.display = 'flex';
+         if (appState.charts.studyTrends) { appState.charts.studyTrends.destroy(); appState.charts.studyTrends = null; }
+         if (appState.charts.questionAccuracy) { appState.charts.questionAccuracy.destroy(); appState.charts.questionAccuracy = null; }
+          updateLoadingOverlay(false);
+         console.log("No deck selected for dashboard.");
+         return;
+     }
+
+     // Deck selected, prepare UI
+     dom.dashboardContent.style.display = 'block';
+     dom.dashboardNoDeckMessage.style.display = 'none';
+     const deck = appState.allDecks[deckId];
+     if (!deck) { /* Should not happen if deckId is valid, but check anyway */
+          console.error("Dashboard render error: Deck data inconsistency.");
+         dom.dashboardContent.style.display = 'none';
+         dom.dashboardNoDeckMessage.style.display = 'flex';
+          showNotification("デッキデータの読み込みエラー。", "error");
+           updateLoadingOverlay(false);
+         return;
+     }
+
     try {
         // Render sections sequentially
-        console.log("Rendering Dashboard Overview...");
         renderDashboardOverview(deck);
-
-        console.log("Rendering Dashboard Trends Chart...");
-        // Use await for async chart rendering if needed (though Chart.js is mostly sync)
-        await renderDashboardTrendsChart(deck);
-
-        console.log("Rendering Dashboard Question Analysis...");
-        await renderDashboardQuestionAnalysis(); // This handles list/chart view internally
-
-        console.log("Dashboard rendering process completed successfully for deck:", deckId);
+        await renderDashboardTrendsChart(deck); // Ensure async finishes if needed
+        await renderDashboardQuestionAnalysis(); // Renders list or chart based on state
+        console.log("Dashboard rendered successfully.");
     } catch (error) {
-        console.error("Error during dashboard rendering process:", error);
-        showNotification(`ダッシュボードの描画中にエラーが発生しました: ${error.message}`, "error", 7000);
-        // Hide content and show error message on failure
-        dom.dashboardContent.style.display = 'none';
-        dom.dashboardNoDeckMessage.style.display = 'flex';
-        const messageSpan = dom.dashboardNoDeckMessage.querySelector('span');
-        if (messageSpan) messageSpan.textContent = "ダッシュボード表示エラー";
-
-    } finally {
-        showLoadingOverlay(false); // Hide loading indicator when done or on error
-    }
+         console.error("Error during dashboard rendering:", error);
+         showNotification(`ダッシュボード描画エラー: ${error.message}`, "error");
+         dom.dashboardContent.style.display = 'none';
+         dom.dashboardNoDeckMessage.style.display = 'flex';
+     } finally {
+         updateLoadingOverlay(false); // Ensure overlay hidden
+     }
 }
 
 
-/**
- * ダッシュボードの「概要」セクションをレンダリングする
- * @param {DeckData} deck - 表示対象のデッキデータ
- */
+/** ダッシュボード: 概要セクションのレンダリング */
 function renderDashboardOverview(deck) {
-    const requiredKeys = ['dashboardDeckName', 'dashboardTotalQuestions', 'dashboardTotalAnswered', 'dashboardOverallAccuracy', 'dashboardLastStudied'];
-    // Check if all required DOM elements for overview exist
-    if (requiredKeys.some(key => !dom[key])) {
-        console.warn("renderDashboardOverview: One or more overview DOM elements are missing.");
-        // Optionally clear existing content or return
-        // requiredKeys.forEach(key => { if (dom[key]) dom[key].textContent = '-'; });
-        return;
-    }
+     safeSetText(dom.dashboardDeckName, deck.name || '名称未設定');
+     safeSetText(dom.dashboardTotalQuestions, deck.questions?.length ?? 0);
 
-    try {
-        // Safely access deck properties with defaults
-        dom.dashboardDeckName.textContent = deck.name || '名称未設定';
-        dom.dashboardTotalQuestions.textContent = deck.questions?.length ?? 0;
-
-        const totalCorrect = deck.totalCorrect || 0;
-        const totalIncorrect = deck.totalIncorrect || 0;
-        const totalAnswered = totalCorrect + totalIncorrect;
-        dom.dashboardTotalAnswered.textContent = totalAnswered;
-
-        // Calculate and format overall accuracy
-        const overallAccuracy = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : -1; // -1 indicates no data
-        dom.dashboardOverallAccuracy.textContent = overallAccuracy >= 0
-            ? `${overallAccuracy}% (${totalCorrect}/${totalAnswered})`
-            : 'データなし';
-
-        // Format last studied date
-        dom.dashboardLastStudied.textContent = deck.lastStudied ? formatDate(deck.lastStudied) : '未学習';
-
-    } catch (error) {
-        console.error("Error rendering dashboard overview:", error);
-        // Display error indicators in the UI if rendering fails
-        if (dom.dashboardDeckName) dom.dashboardDeckName.textContent = "表示エラー";
-        if (dom.dashboardOverallAccuracy) dom.dashboardOverallAccuracy.textContent = "エラー";
-        // Clear other fields or show '-'
-        if (dom.dashboardTotalQuestions) dom.dashboardTotalQuestions.textContent = '-';
-        if (dom.dashboardTotalAnswered) dom.dashboardTotalAnswered.textContent = '-';
-        if (dom.dashboardLastStudied) dom.dashboardLastStudied.textContent = '-';
-    }
+     const { totalCorrect, totalIncorrect, accuracyText, totalAnswered } = calculateOverallAccuracy(deck);
+     safeSetText(dom.dashboardTotalAnswered, totalAnswered);
+     safeSetText(dom.dashboardOverallAccuracy, accuracyText);
+     safeSetText(dom.dashboardLastStudied, deck.lastStudied ? formatDate(deck.lastStudied) : '未学習');
 }
 
-/**
- * ダッシュボードの「学習推移」グラフをレンダリングする (V2.1 積み上げ棒グラフ + セッション番号軸)
- * @param {DeckData} deck - 表示対象のデッキデータ
- */
+/** デッキの累計正答率と関連テキストを計算 */
+function calculateOverallAccuracy(deck) {
+     if (!deck) return { totalCorrect: 0, totalIncorrect: 0, accuracyText: '-', totalAnswered: 0 };
+     const totalCorrect = deck.totalCorrect || 0;
+     const totalIncorrect = deck.totalIncorrect || 0;
+     const totalAnswered = totalCorrect + totalIncorrect;
+     const accuracy = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : -1;
+     const accuracyText = accuracy >= 0 ? `${accuracy}% (${totalCorrect}/${totalAnswered})` : 'データなし';
+     return { totalCorrect, totalIncorrect, accuracyText, totalAnswered };
+}
+
+/** ダッシュボード: 学習推移グラフ (積み上げ + 折れ線) レンダリング */
 async function renderDashboardTrendsChart(deck) {
-    // Ensure Chart.js library is loaded (optional check)
-    if (typeof Chart === 'undefined') {
-        console.error("Chart.js library is not loaded.");
-        showNotification("グラフ描画ライブラリが見つかりません。", "error");
+     if (!checkChartJSAvaible() || !dom.studyTrendsChart || !dom.studyTrendsNoData || !dom.studyTrendsChartContainer) {
+        if(dom.studyTrendsChartContainer) dom.studyTrendsChartContainer.style.display = 'none'; // Hide container if canvas/lib missing
         if(dom.studyTrendsNoData) {
-             dom.studyTrendsNoData.textContent = "グラフ描画不可";
+             dom.studyTrendsNoData.textContent = typeof Chart === 'undefined' ? "グラフ描画不可 (ライブラリ未読込)" : "グラフ要素未検出";
              dom.studyTrendsNoData.style.display = 'block';
         }
-        if(dom.studyTrendsChartContainer) dom.studyTrendsChartContainer.style.display = 'none';
-        return;
-    }
-
-    // Check for essential DOM elements
-    if (!dom.studyTrendsChart || !dom.studyTrendsNoData || !dom.studyTrendsChartContainer) {
-        console.warn("renderDashboardTrendsChart: Chart canvas, container, or no-data element missing.");
-        return;
-    }
+         return;
+     }
     const canvas = dom.studyTrendsChart;
-    const noDataMessage = dom.studyTrendsNoData;
+    const noDataMsg = dom.studyTrendsNoData;
     const container = dom.studyTrendsChartContainer;
-
     let ctx;
-    try {
-         ctx = canvas.getContext('2d');
-         if (!ctx) throw new Error("Canvas 2D context is null.");
-    } catch (e) {
-        console.error("renderDashboardTrendsChart: Failed to get 2D context for trends chart canvas.", e);
-        container.style.display = 'none'; // Hide container on context error
-        noDataMessage.textContent = "グラフ描画エラー (Context取得失敗)";
-        noDataMessage.style.display = 'block';
+     try { ctx = canvas.getContext('2d'); if (!ctx) throw new Error("Canvas Context"); } catch (e) {
+        console.error("Trends chart context error:", e);
+        container.style.display = 'none'; noDataMsg.textContent = "グラフ描画エラー (Context)"; noDataMsg.style.display = 'block';
         return;
     }
 
-    // Destroy previous chart instance if it exists
-    if (studyTrendsChart instanceof Chart) { // Check if it's a Chart instance
-        try {
-             studyTrendsChart.destroy();
-             studyTrendsChart = null;
-             console.log("Previous study trends chart instance destroyed.");
-        } catch(destroyError) {
-            console.error("Error destroying previous trends chart:", destroyError);
-            // Continue even if destroy fails, might leak memory
-        }
-    }
+     destroyChart('studyTrends'); // Destroy previous instance
 
-    // Get session history, limited to the most recent ones
-    const sessionHistory = (Array.isArray(deck.sessionHistory) ? deck.sessionHistory : [])
-                           .slice(-DASHBOARD_TREND_SESSIONS);
-
-    // Handle case with no data
+    const sessionHistory = (deck.sessionHistory || []).slice(-DASHBOARD_TREND_SESSIONS);
     if (sessionHistory.length === 0) {
-        container.style.display = 'block'; // Show container
-        canvas.style.display = 'none';    // Hide canvas
-        noDataMessage.textContent = "学習セッション履歴がありません。";
-        noDataMessage.style.display = 'block'; // Show message
-        console.log("renderDashboardTrendsChart: No session history data available.");
+        container.style.display = 'block'; canvas.style.display = 'none';
+         noDataMsg.textContent = "学習セッション履歴がありません。"; noDataMsg.style.display = 'block';
+         console.log("No session history for trends chart.");
         return;
     }
 
-    // Prepare UI for chart display
-    container.style.display = 'block'; // Show container
-    canvas.style.display = 'block';    // Show canvas
-    noDataMessage.style.display = 'none'; // Hide no-data message
+     container.style.display = 'block'; canvas.style.display = 'block'; noDataMsg.style.display = 'none';
 
-    // --- Data Preparation ---
-    const totalSessions = deck.sessionHistory?.length || 0; // Total sessions in the deck
-    const startSessionIndex = Math.max(0, totalSessions - sessionHistory.length); // Starting index for labels
-    const labels = sessionHistory.map((h, index) => `セッション ${startSessionIndex + index + 1}`); // X-axis labels (Session number)
-    const timestamps = sessionHistory.map(h => h.ts); // Tooltip timestamps
-    const correctData = sessionHistory.map(h => h.correct || 0);
-    const incorrectData = sessionHistory.map(h => h.incorrect || 0);
-    const accuracyData = sessionHistory.map(h => {
-        const total = (h.correct || 0) + (h.incorrect || 0);
-        return total > 0 ? Math.round(((h.correct || 0) / total) * 100) : 0;
-    });
+    // Data Prep
+     const totalSessionsInDeck = deck.sessionHistory?.length ?? 0;
+     const startSessionIndex = Math.max(0, totalSessionsInDeck - sessionHistory.length);
+     const labels = sessionHistory.map((_, i) => `S${startSessionIndex + i + 1}`); // Shorter label "S1", "S2"...
+     const timestamps = sessionHistory.map(h => h.ts);
+     const correctData = sessionHistory.map(h => h.correct || 0);
+     const incorrectData = sessionHistory.map(h => h.incorrect || 0);
+     const accuracyData = sessionHistory.map(h => calculateAccuracy(h.correct, h.incorrect));
 
-    // --- Chart Configuration ---
+     // Use computed styles for colors
+     const computedStyle = getComputedStyle(document.body);
+     const primaryColor = computedStyle.getPropertyValue('--primary-color').trim();
+     const successColor = computedStyle.getPropertyValue('--success-color').trim();
+     const dangerColor = computedStyle.getPropertyValue('--danger-color').trim();
+     const gridColor = computedStyle.getPropertyValue('--border-color').trim();
+     const textColor = computedStyle.getPropertyValue('--text-light').trim();
+     const titleColor = computedStyle.getPropertyValue('--text-dark').trim();
+
+
+     // Chart Config
     const chartConfig = {
-        type: 'bar', // Base type is bar chart
-        data: {
-            labels: labels,
-            datasets: [
-                {
-                    label: '正解数',
-                    data: correctData,
-                    backgroundColor: 'rgba(46, 204, 113, 0.7)', // Success Green
-                    borderColor: 'rgba(46, 204, 113, 1)',
-                    borderWidth: 1,
-                    stack: 'counts', // Group for stacking bars
-                    yAxisID: 'yCounts', // Use left Y-axis
-                    order: 2 // Render after accuracy line
-                },
-                {
-                    label: '不正解数',
-                    data: incorrectData,
-                    backgroundColor: 'rgba(231, 76, 60, 0.7)', // Danger Red
-                    borderColor: 'rgba(231, 76, 60, 1)',
-                    borderWidth: 1,
-                    stack: 'counts', // Group for stacking bars
-                    yAxisID: 'yCounts', // Use left Y-axis
-                    order: 3 // Render last
-                },
-                {
-                    label: '正答率 (%)',
-                    data: accuracyData,
-                    borderColor: 'rgba(52, 152, 219, 1)', // Primary Blue
-                    backgroundColor: 'rgba(52, 152, 219, 0.1)', // Light blue fill
-                    yAxisID: 'yAccuracy', // Use right Y-axis
-                    type: 'line', // Override type for this dataset
-                    tension: 0.2, // Slight curve
-                    fill: false, // Don't fill area under line by default
-                    pointRadius: 3,
-                    pointHoverRadius: 5,
-                    order: 1 // Render first (on top)
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: {
-                mode: 'index', // Show tooltips for all datasets at the same index
-                intersect: false // Show tooltips even if not directly hovering over point/bar
-            },
-            plugins: {
-                tooltip: {
-                    mode: 'index', // Ensure tooltip mode matches interaction mode
-                    intersect: false,
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    titleFont: { weight: 'bold' },
-                    bodySpacing: 5,
-                    padding: 10,
-                    callbacks: {
-                        // Tooltip Title (e.g., "セッション 5")
-                        title: function(tooltipItems) {
-                            return tooltipItems[0]?.label || '';
-                        },
-                        // Tooltip Body Lines (one per dataset)
-                        label: function(context) {
-                             let label = context.dataset.label || '';
-                             if (label) {
-                                 label += ': ';
-                             }
-                             if (context.parsed.y !== null) {
-                                 // Add unit based on axis ID
-                                 if (context.dataset.yAxisID === 'yAccuracy') {
-                                     label += `${context.parsed.y}%`;
-                                 } else {
-                                     label += `${context.parsed.y} 問`;
-                                 }
-                             }
-                             return label;
-                        },
-                         // Tooltip Footer (display timestamp)
-                         footer: function(tooltipItems) {
-                             const index = tooltipItems[0]?.dataIndex;
-                             if (index !== undefined && timestamps[index]) {
-                                 return `日時: ${formatDate(timestamps[index])}`;
-                             }
-                             return '';
-                         }
-                    }
-                },
-                legend: {
-                    position: 'bottom', // Place legend at the bottom
-                    labels: {
-                         padding: 20,
-                         usePointStyle: true // Use point style markers for legend items
-                    }
-                },
-                 title: { // Optional chart title
-                     display: false, // Set to true to show title
-                     // text: '学習セッションの推移'
-                 }
-            },
-            scales: {
-                x: {
-                    stacked: true, // Enable stacking on X-axis for bars
-                    title: {
-                        display: true,
-                        text: '学習セッション' // X-axis title
-                    },
-                    grid: {
-                        display: false // Hide vertical grid lines
-                    }
-                },
-                yCounts: { // Left Y-axis (Counts)
-                    type: 'linear',
-                    position: 'left',
-                    stacked: true, // Enable stacking on Y-axis
-                    beginAtZero: true, // Start axis at 0
-                    title: {
-                        display: true,
-                        text: '問題数' // Y-axis title
-                    },
-                    grid: {
-                        color: '#e0e0e0' // Color for horizontal grid lines
-                    },
-                    ticks: { // Ensure integer ticks
-                         precision: 0,
-                         // suggest a max slightly above the max stacked value
-                         // suggestedMax: Math.max(...correctData.map((c, i) => c + incorrectData[i])) + 5,
-                         stepSize: 1 // Or dynamic step size
-                    }
-                },
-                yAccuracy: { // Right Y-axis (Accuracy %)
-                    type: 'linear',
-                    position: 'right',
-                    min: 0, // Min accuracy is 0%
-                    max: 100, // Max accuracy is 100%
-                    title: {
-                        display: true,
-                        text: '正答率 (%)' // Y-axis title
-                    },
-                    grid: {
-                        drawOnChartArea: false // Don't draw grid lines for this axis over the chart
-                    },
-                    ticks: {
-                        stepSize: 20 // Ticks every 20%
-                    }
-                }
-            }
-        }
+         type: 'bar',
+         data: {
+             labels: labels,
+             datasets: [
+                { label: '正解', data: correctData, backgroundColor: hsla(getHue(successColor), 55%, 55%, 0.7), stack: 'a', yAxisID: 'yCounts', order: 2 },
+                { label: '不正解', data: incorrectData, backgroundColor: hsla(getHue(dangerColor), 75%, 60%, 0.7), stack: 'a', yAxisID: 'yCounts', order: 3 },
+                 { label: '正答率 (%)', data: accuracyData, borderColor: primaryColor, type: 'line', yAxisID: 'yAccuracy', tension: 0.3, fill: false, pointRadius: 3, pointHoverRadius: 5, order: 1 }
+             ]
+         },
+         options: getBaseChartOptions({ // Use shared options
+            interactionMode: 'index',
+            stacked: true, // Indicate bars are stacked
+             titleText: null, //'学習セッション推移', // Optional Title
+             tooltipCallbacks: {
+                 title: items => `セッション ${startSessionIndex + items[0]?.dataIndex + 1}`,
+                 label: ctx => {
+                     let label = ctx.dataset.label || '';
+                     if(label) label += ': ';
+                     if(ctx.parsed.y !== null) label += `${ctx.parsed.y}${ctx.dataset.yAxisID === 'yAccuracy' ? '%' : ' 問'}`;
+                     return label;
+                 },
+                  footer: items => `日時: ${formatDate(timestamps[items[0]?.dataIndex])}`
+             },
+             scales: {
+                x: { title: { text: 'セッション番号' }, grid: { display: false }, ticks:{ color: textColor } },
+                 yCounts: { type: 'linear', position: 'left', stacked: true, beginAtZero: true, title: { text: '問題数' }, grid:{ color: gridColor }, ticks:{ color: textColor, precision: 0 }},
+                 yAccuracy: { type: 'linear', position: 'right', min: 0, max: 100, title: { text: '正答率(%)' }, grid:{ drawOnChartArea: false }, ticks:{ color: textColor, stepSize: 20 } }
+             }
+         })
     };
 
-    // --- Render Chart ---
-    try {
-        // Use requestAnimationFrame to ensure rendering happens smoothly
-        requestAnimationFrame(() => {
-             // Double-check canvas exists before creating chart (might be removed by navigation)
-             if (document.getElementById(canvas.id)) {
-                studyTrendsChart = new Chart(ctx, chartConfig);
-                console.log("Study trends chart rendered successfully (stacked bar + line).");
-             } else {
-                console.warn("Study trends chart canvas removed before chart creation.");
-             }
-        });
-    } catch (chartError) {
-         console.error("Error creating study trends chart:", chartError);
-         showNotification("学習推移グラフの描画中にエラーが発生しました。", "error");
-         // Hide canvas and show error message if chart creation fails
-         canvas.style.display = 'none';
-         noDataMessage.textContent = "グラフ描画エラー";
-         noDataMessage.style.display = 'block';
-    }
+     // Render
+     renderChart('studyTrends', canvas, chartConfig);
 }
 
 
-/**
- * フィルターとソートを適用した後の問題統計情報のリストを取得する
- * @returns {Array<Object>} 各問題のデータに統計情報を追加した配列 (常に配列を返す)
- */
-function getFilteredAndSortedQuestionStats() {
-    const deckId = appState.currentDashboardDeckId;
-    if (!deckId || !appState.allDecks[deckId] || !Array.isArray(appState.allDecks[deckId].questions)) {
-        return []; // Return empty if no deck or questions
+/** ダッシュボード: 問題別分析セクションレンダリング */
+async function renderDashboardQuestionAnalysis() {
+    if (!dom.questionAnalysisView || !dom.dashboardAnalysisControlsPanel) return;
+
+     const allFilteredStats = getFilteredAndSortedQuestionStats();
+     const totalItems = allFilteredStats.length;
+     const questionsPerPage = appState.dashboardQuestionsPerPage; // Already sync'd
+     const totalPages = Math.ceil(totalItems / questionsPerPage) || 1;
+     appState.dashboardCurrentPage = Math.max(1, Math.min(appState.dashboardCurrentPage, totalPages)); // Validate page
+
+     const startIndex = (appState.dashboardCurrentPage - 1) * questionsPerPage;
+     const endIndex = startIndex + questionsPerPage;
+     const statsForCurrentPage = allFilteredStats.slice(startIndex, endIndex);
+
+    try {
+        // Clear previous dynamic content & destroy chart if switching view
+         if (appState.dashboardViewMode === 'list') destroyChart('questionAccuracy');
+         else if(dom.questionAccuracyList) dom.questionAccuracyList.innerHTML = '';
+
+         // Hide pagination before potentially re-rendering
+          if(dom.questionPagination) dom.questionPagination.innerHTML = '';
+
+
+         if (appState.dashboardViewMode === 'list') {
+             console.log(`Rendering question list - Page ${appState.dashboardCurrentPage}/${totalPages}`);
+             renderDashboardQuestionList(statsForCurrentPage, startIndex);
+             renderDashboardPagination(totalItems, totalPages, appState.dashboardCurrentPage);
+         } else {
+            console.log("Rendering question analysis chart");
+            await renderDashboardQuestionAnalysisChart(allFilteredStats); // Pass all filtered stats
+         }
+    } catch (error) {
+         console.error("Error rendering question analysis content:", error);
+         showNotification("問題分析データの表示中にエラーが発生しました。", "error");
+         // Show error in list area as fallback
+         if (dom.questionAccuracyList) dom.questionAccuracyList.innerHTML = '<li class="status-message error" style="padding: 15px; text-align: center;">表示エラー</li>';
+     }
+}
+
+/** ダッシュボード: 問題リストレンダリング */
+function renderDashboardQuestionList(stats, startIndex) {
+     if (!dom.questionAccuracyList) return;
+     dom.questionAccuracyList.innerHTML = ''; // Clear
+     dom.questionAccuracyList.scrollTop = 0;
+
+     if (stats.length === 0) {
+        const message = (appState.dashboardSearchQuery || appState.dashboardFilterAccuracy !== 'all')
+                          ? '該当する問題がありません。フィルターや検索条件を確認してください。'
+                          : '問題データがありません。';
+         dom.questionAccuracyList.innerHTML = `<li class="status-message" style="padding: 15px; text-align: center;">${message}</li>`;
+        return;
+     }
+
+    const fragment = document.createDocumentFragment();
+    stats.forEach((q, index) => {
+        const itemIndex = startIndex + index;
+         const li = document.createElement('li');
+         li.className = 'question-accuracy-item';
+         li.dataset.questionId = q.id;
+         li.dataset.index = itemIndex; // Store overall index for detail view context
+         li.tabIndex = 0;
+         li.role = 'button';
+         li.setAttribute('aria-label', `問題 ${itemIndex + 1} 詳細表示`);
+
+         const previewDiv = document.createElement('div');
+         previewDiv.className = 'question-text-preview';
+         previewDiv.textContent = `${itemIndex + 1}. ${q.question || '問題文なし'}`;
+         li.appendChild(previewDiv);
+
+        const scoreContainer = document.createElement('div');
+        scoreContainer.className = 'score-container';
+
+         const accSpan = document.createElement('span');
+         accSpan.className = 'accuracy-score';
+         const acc = q.accuracy;
+         if (acc === -1) {
+             accSpan.textContent = '未解答';
+             accSpan.classList.add('unanswered');
+         } else {
+             accSpan.textContent = `${acc}%`;
+             if (acc <= DASHBOARD_ACCURACY_THRESHOLDS.LOW) accSpan.classList.add('low');
+             else if (acc <= DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM) accSpan.classList.add('medium');
+             else accSpan.classList.add('high');
+         }
+        scoreContainer.appendChild(accSpan);
+
+        const countsSpan = document.createElement('span');
+        countsSpan.className = 'answer-counts';
+         countsSpan.textContent = q.totalCount > 0 ? `(${q.correctCount} / ${q.totalCount})` : '-';
+         scoreContainer.appendChild(countsSpan);
+
+         li.appendChild(scoreContainer);
+         fragment.appendChild(li);
+    });
+    dom.questionAccuracyList.appendChild(fragment);
+}
+
+/** ダッシュボード: 問題リストアイテムクリックハンドラ */
+function handleQuestionItemClick(event) {
+     const targetItem = event.target.closest('.question-accuracy-item');
+     if (targetItem) {
+         showDetailForListItem(targetItem);
+     }
+}
+
+/** ダッシュボード: 問題リストアイテムキーダウンハンドラ */
+function handleQuestionItemKeydown(event) {
+     const currentItem = event.target.closest('.question-accuracy-item');
+     if (!currentItem) return;
+
+     if (event.key === 'Enter' || event.key === ' ') {
+         event.preventDefault();
+         showDetailForListItem(currentItem);
+     }
+     else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          focusSiblingListItem(currentItem, event.key === 'ArrowDown' ? 'nextElementSibling' : 'previousElementSibling');
+     }
+      else if (event.key === 'Home' || event.key === 'End') {
+          event.preventDefault();
+          focusSiblingListItem(currentItem, event.key === 'Home' ? 'firstElementChild' : 'lastElementChild', currentItem.parentElement);
+      }
+}
+
+/** ダッシュボード: リストアイテムに対応する詳細をモーダルで表示 */
+function showDetailForListItem(listItem) {
+     const questionId = listItem.dataset.questionId;
+     const indexStr = listItem.dataset.index; // Get overall index
+     const deckId = appState.currentDashboardDeckId;
+
+     if (!questionId || !deckId || !appState.allDecks[deckId] || indexStr === undefined) {
+         console.error("Cannot show detail: Missing data context.", { questionId, deckId, indexStr });
+         return;
+     }
+     const allStats = getFilteredAndSortedQuestionStats(); // Re-fetch *filtered/sorted* list
+     const questionStat = allStats.find(qs => qs.id === questionId);
+
+     if (questionStat) {
+         const displayIndex = parseInt(indexStr, 10); // Use index from clicked item
+         const detailContent = createQuestionDetailElement(questionStat, displayIndex);
+         showModal({
+             title: `問題 ${displayIndex + 1} 詳細`,
+             content: detailContent, // Pass the created element
+             size: 'lg', // Use a larger modal for detail
+             buttons: [ // Only a close button needed
+                 { id: 'modal-close-detail', text: '閉じる', class: 'secondary', onClick: closeModal }
+             ],
+             onClose: () => { // Return focus to list item on close
+                  listItem?.focus(); // Focus the item that opened the modal
+             }
+         });
+         // Attach ID for potential specific styling
+          dom.modalDialog.id = 'dashboard-question-detail-modal';
+     } else {
+         showNotification("問題データの取得に失敗しました。", "error");
+     }
+}
+
+/** 問題詳細表示用のHTML要素を生成 */
+function createQuestionDetailElement(qStat, displayIndex) {
+     // Reuse existing detail view container if it's already in the DOM but hidden
+     let detailView = dom.questionDetailView;
+     if (!detailView) { // Create if doesn't exist (e.g., first time)
+         detailView = document.createElement('div');
+         detailView.id = 'question-detail-view'; // Assign ID for styling
+     }
+     detailView.innerHTML = ''; // Clear previous content
+
+     // Title (not using h4 anymore as it's in modal title)
+
+     // Question Text & Correct Answer
+     const qTextP = document.createElement('p');
+     qTextP.innerHTML = `<strong>問題文:</strong> ${escapeHtml(qStat.question)}`;
+     detailView.appendChild(qTextP);
+     const ansP = document.createElement('p');
+     ansP.innerHTML = `<strong>正解:</strong> ${escapeHtml(qStat.correctAnswer)}`;
+     detailView.appendChild(ansP);
+     // Explanation
+     if (qStat.explanation) {
+          const expP = document.createElement('p');
+          expP.innerHTML = `<strong>解説:</strong> ${escapeHtml(qStat.explanation)}`;
+          detailView.appendChild(expP);
+     }
+
+    // Stats
+     const statsP = document.createElement('p');
+     const accText = qStat.accuracy === -1 ? '未解答' : `${qStat.accuracy}%`;
+     statsP.innerHTML = `<strong>あなたの正答率:</strong> <strong class="accuracy-score ${getAccuracyClass(qStat.accuracy)}">${accText}</strong> (${qStat.correctCount ?? 0} / ${qStat.totalCount ?? 0})`;
+     detailView.appendChild(statsP);
+
+     // History
+     const historyHeader = document.createElement('p');
+     historyHeader.innerHTML = `<strong>直近の解答履歴 (最大${MAX_RECENT_HISTORY}件):</strong>`;
+     detailView.appendChild(historyHeader);
+
+     const historyUl = document.createElement('ul');
+     const recentHistory = (qStat.history || []).slice(-MAX_RECENT_HISTORY).reverse();
+     if (recentHistory.length === 0) {
+         historyUl.innerHTML = '<li>解答履歴はありません。</li>';
+     } else {
+         recentHistory.forEach(h => {
+            const li = document.createElement('li');
+            const tsSpan = document.createElement('span');
+             tsSpan.textContent = formatDate(h.ts);
+            const resultSpan = document.createElement('span');
+            const resultClass = h.correct ? 'correct' : 'incorrect';
+            const resultText = h.correct ? '正解' : '不正解';
+             let evalText = '';
+             if (h.evaluation) {
+                 const evalMap = { difficult: '難', normal: '普', easy: '易' };
+                 evalText = ` (<span class="eval" title="${h.evaluation}">${evalMap[h.evaluation] || h.evaluation}</span>)`;
+             } else {
+                 evalText = ' (<span class="eval" title="評価なし">-</span>)';
+             }
+             resultSpan.innerHTML = `<span class="${resultClass}">${resultText}</span>${evalText}`;
+             li.appendChild(tsSpan);
+             li.appendChild(resultSpan);
+             historyUl.appendChild(li);
+        });
+     }
+     detailView.appendChild(historyUl);
+
+    return detailView; // Return the populated element
+}
+
+/** ダッシュボード: 問題精度グラフ表示 */
+async function renderDashboardQuestionAnalysisChart(stats) {
+     if (!checkChartJSAvaible() || !dom.questionAccuracyChart || !dom.questionAccuracyNoData || !dom.questionAccuracyChartContainer) {
+          if(dom.questionAccuracyChartContainer) dom.questionAccuracyChartContainer.style.display = 'none';
+         if(dom.questionAccuracyNoData) {
+              dom.questionAccuracyNoData.textContent = typeof Chart === 'undefined' ? "グラフ描画不可 (ライブラリ未読込)" : "グラフ要素未検出";
+              dom.questionAccuracyNoData.style.display = 'block';
+         }
+        return;
+    }
+    const canvas = dom.questionAccuracyChart;
+    const noDataMsg = dom.questionAccuracyNoData;
+    const container = dom.questionAccuracyChartContainer;
+    let ctx;
+     try { ctx = canvas.getContext('2d'); if (!ctx) throw new Error("Canvas Context"); } catch (e) {
+        console.error("Accuracy chart context error:", e);
+        container.style.display = 'none'; noDataMsg.textContent = "グラフ描画エラー (Context)"; noDataMsg.style.display = 'block';
+        return;
     }
 
-    const questions = appState.allDecks[deckId].questions;
-    const filterAccuracy = appState.dashboardFilterAccuracy;
-    const searchQuery = appState.dashboardSearchQuery.toLowerCase(); // Lowercase for case-insensitive search
-    const sortOrder = appState.dashboardSortOrder;
+     destroyChart('questionAccuracy'); // Destroy previous
 
-    // 1. Map questions to include calculated stats
-    let questionStats = questions.map((q, index) => {
-        const history = q.history || [];
-        const totalCount = history.length;
-        const correctCount = history.filter(h => h.correct).length;
-        // Calculate accuracy: -1 for unanswered, 0-100 otherwise
-        const accuracy = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : -1;
-        // Get timestamp of the last answer, 0 if unanswered
-        const lastAnswered = totalCount > 0 ? history[history.length - 1].ts : 0;
-        const incorrectCount = totalCount - correctCount;
+    const answeredStats = stats.filter(q => q.accuracy !== -1);
+    if (answeredStats.length === 0) {
+        container.style.display = 'block'; canvas.style.display = 'none';
+        noDataMsg.textContent = "解答済みの問題データがありません。"; noDataMsg.style.display = 'block';
+         console.log("No answered questions for accuracy chart.");
+        return;
+    }
 
-        return {
-            ...q, // Spread original question data (id, question, options, etc.)
-            originalIndex: index, // Store original order index
-            correctCount,
-            totalCount,
-            incorrectCount,
-            accuracy,
-            lastAnswered,
-        };
+    container.style.display = 'block'; canvas.style.display = 'block'; noDataMsg.style.display = 'none';
+
+    // Data Aggregation (Binning)
+     const bins = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+     const labels = bins.slice(0, -1).map((bin, i) => `${bin + (i > 0 ? 1 : 0)}-${bins[i+1]}%`);
+     const dataCounts = Array(labels.length).fill(0);
+
+    answeredStats.forEach(q => {
+        const acc = q.accuracy;
+         let binIndex = bins.findIndex((bin, i) => (i === 0 ? (acc >= bin && acc <= bins[i+1]) : (acc > bin && acc <= bins[i+1])));
+        if (binIndex === -1 && acc === 0) binIndex = 0; // Catch 0% if missed
+        if (binIndex >= 0) dataCounts[binIndex]++;
+        else console.warn(`Could not bin accuracy: ${acc}`);
     });
 
+     // Colors
+     const computedStyle = getComputedStyle(document.body);
+     const lowColor = hsla(getHue(computedStyle.getPropertyValue('--danger-color').trim()), 75%, 60%, 0.7);
+     const medColor = hsla(getHue(computedStyle.getPropertyValue('--warning-color').trim()), 80%, 60%, 0.7);
+     const highColor = hsla(getHue(computedStyle.getPropertyValue('--success-color').trim()), 55%, 55%, 0.7);
+     const textColor = computedStyle.getPropertyValue('--text-light').trim();
+     const titleColor = computedStyle.getPropertyValue('--text-dark').trim();
+
+    const backgroundColors = labels.map(label => {
+         const upperBoundary = parseInt(label.split('-')[1], 10);
+         if (upperBoundary <= DASHBOARD_ACCURACY_THRESHOLDS.LOW + 1) return lowColor;
+         if (upperBoundary <= DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM + 1) return medColor;
+         return highColor;
+    });
+
+    // Chart Config
+    const chartConfig = {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{ label: '問題数', data: dataCounts, backgroundColor: backgroundColors, borderWidth: 0 }] // No borders
+        },
+        options: getBaseChartOptions({ // Use shared options
+            titleText: '正答率分布 (解答済み問題)',
+             indexAxis: 'x',
+             tooltipCallbacks: {
+                 title: items => `正答率 ${items[0].label}`,
+                 label: ctx => `問題数: ${ctx.parsed.y} 問`
+             },
+            scales: {
+                y: { beginAtZero: true, title: { text: '問題数' }, ticks: { precision: 0, color: textColor } },
+                 x: { title: { text: '正答率範囲 (%)' }, grid: { display: false }, ticks:{ color: textColor } }
+            },
+            onClick: (event, elements) => { // Chart click handler
+                if (elements.length > 0) {
+                    const clickedIndex = elements[0].index;
+                     const filterMap = ['low', 'low', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'high', 'high']; // Map index to filter category
+                    const filterValue = filterMap[clickedIndex] ?? 'all'; // Determine filter
+                    console.log(`Accuracy chart clicked: Index=${clickedIndex}, Filter=${filterValue}`);
+
+                    // Apply filter & switch view
+                     appState.dashboardFilterAccuracy = filterValue;
+                     if (dom.dashboardFilterAccuracy) dom.dashboardFilterAccuracy.value = filterValue;
+                     appState.dashboardCurrentPage = 1;
+                     setDashboardViewMode('list'); // Switches view and re-renders analysis
+                }
+            },
+             onHover: (event, chartElement) => {
+                 event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
+             }
+         })
+     };
+
+     renderChart('questionAccuracy', canvas, chartConfig);
+}
+
+
+/** ダッシュボード: ページネーションレンダリング */
+function renderDashboardPagination(totalItems, totalPages, currentPage) {
+     renderGenericPagination(dom.questionPagination, totalItems, totalPages, currentPage, 'dashboard-page-nav');
+}
+
+/** ダッシュボード: ページ遷移ハンドラ */
+function handleDashboardPaginationClick(event) {
+    const targetPage = getPageFromPaginationClick(event, 'dashboard-page-nav');
+     if (targetPage !== null) {
+         appState.dashboardCurrentPage = targetPage;
+         renderDashboardQuestionAnalysis(); // Re-render analysis for new page
+          // Focus the list container after page change
+         if (dom.questionAccuracyList) setTimeout(() => dom.questionAccuracyList.focus(), 100);
+     }
+}
+
+/** フィルター/ソートされた問題統計情報リストを取得 */
+function getFilteredAndSortedQuestionStats() {
+    const deck = appState.allDecks[appState.currentDashboardDeckId];
+     if (!deck || !Array.isArray(deck.questions)) return [];
+
+     // 1. Calculate Stats for each question
+     let questionStats = deck.questions.map((q, index) => ({
+        ...q,
+         originalIndex: index,
+         ...calculateQuestionAccuracy(q) // Returns { correctCount, totalCount, accuracy, lastAnswered, incorrectCount }
+    }));
+
     // 2. Apply Accuracy Filter
-    if (filterAccuracy !== 'all') {
+     const filterAccuracy = appState.dashboardFilterAccuracy;
+     if (filterAccuracy !== 'all') {
         questionStats = questionStats.filter(q => {
             const acc = q.accuracy;
             switch (filterAccuracy) {
@@ -3002,718 +3434,655 @@ function getFilteredAndSortedQuestionStats() {
                 case 'medium': return acc > DASHBOARD_ACCURACY_THRESHOLDS.LOW && acc <= DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM;
                 case 'high': return acc > DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM;
                 case 'unanswered': return acc === -1;
-                default: return true; // Should not happen if filterAccuracy is validated
+                default: return true;
             }
         });
     }
 
     // 3. Apply Search Filter
-    if (searchQuery !== '') {
-        questionStats = questionStats.filter(q =>
-            // Check question, options, answer, and explanation (if they exist)
-            (q.question && q.question.toLowerCase().includes(searchQuery)) ||
-            (Array.isArray(q.options) && q.options.some(opt => opt.toLowerCase().includes(searchQuery))) ||
-            (q.correctAnswer && q.correctAnswer.toLowerCase().includes(searchQuery)) ||
-            (q.explanation && q.explanation.toLowerCase().includes(searchQuery))
-        );
-    }
-
-    // 4. Apply Sorting
-    questionStats.sort((a, b) => {
-        switch (sortOrder) {
-            case 'accuracyAsc':
-                // Unanswered (-1) first, then by accuracy, then by original order
-                if (a.accuracy === -1 && b.accuracy !== -1) return -1;
-                if (a.accuracy !== -1 && b.accuracy === -1) return 1;
-                if (a.accuracy !== b.accuracy) return a.accuracy - b.accuracy;
-                return a.originalIndex - b.originalIndex;
-            case 'accuracyDesc':
-                // Answered first, by accuracy descending, then unanswered (-1), then by original order
-                if (a.accuracy === -1 && b.accuracy !== -1) return 1;
-                if (a.accuracy !== -1 && b.accuracy === -1) return -1;
-                if (a.accuracy !== b.accuracy) return b.accuracy - a.accuracy;
-                return a.originalIndex - b.originalIndex;
-            case 'mostIncorrect':
-                // Sort by incorrect count descending, then by original order
-                if (a.incorrectCount !== b.incorrectCount) return b.incorrectCount - a.incorrectCount;
-                return a.originalIndex - b.originalIndex;
-            case 'lastAnswered':
-                 // Sort by last answered timestamp descending (newer first), unanswered (0) last
-                if (a.lastAnswered !== b.lastAnswered) return b.lastAnswered - a.lastAnswered;
-                return a.originalIndex - b.originalIndex;
-            case 'questionOrder':
-            default:
-                // Sort by original index
-                return a.originalIndex - b.originalIndex;
-        }
-    });
-
-    return questionStats;
-}
-
-/** ダッシュボードの「問題別分析」セクション（リストまたはグラフ）をレンダリングする */
-async function renderDashboardQuestionAnalysis() {
-    // Ensure analysis view container and controls exist
-    if (!dom.questionAnalysisView || !dom.dashboardAnalysisControls) {
-        console.warn("renderDashboardQuestionAnalysis: Analysis view container or controls element not found.");
-        return;
-    }
-
-    // Close detail view if open before re-rendering
-    closeQuestionDetailView();
-
-    // Get the full list of filtered and sorted questions
-    const allFilteredStats = getFilteredAndSortedQuestionStats();
-    const totalItems = allFilteredStats.length;
-
-    // Calculate pagination details
-    const totalPages = Math.ceil(totalItems / appState.dashboardQuestionsPerPage) || 1;
-    // Ensure current page is valid
-    appState.dashboardCurrentPage = Math.max(1, Math.min(appState.dashboardCurrentPage, totalPages));
-    const startIndex = (appState.dashboardCurrentPage - 1) * appState.dashboardQuestionsPerPage;
-    const endIndex = startIndex + appState.dashboardQuestionsPerPage;
-    // Get stats for the current page (only relevant for list view)
-    const statsForCurrentPage = allFilteredStats.slice(startIndex, endIndex);
-
-    try {
-        // Clear previous content before rendering new view
-        if (dom.questionAccuracyList) dom.questionAccuracyList.innerHTML = '';
-        if (dom.questionPagination) dom.questionPagination.innerHTML = '';
-        // Reset chart view elements
-        if (dom.questionAccuracyChartContainer && dom.questionAccuracyChart) {
-             // Destroy existing chart instance cleanly
-             if (questionAccuracyChart instanceof Chart) {
-                 try { questionAccuracyChart.destroy(); } catch(e){ console.error("Error destroying chart:", e); }
-                 questionAccuracyChart = null;
-             }
-             dom.questionAccuracyChart.style.display = 'none'; // Hide canvas
-             dom.questionAccuracyChartContainer.style.display = 'none'; // Hide container
-        }
-        if(dom.questionAccuracyNoData) dom.questionAccuracyNoData.style.display = 'none'; // Hide no-data message
-
-        // Render based on current view mode
-        if (appState.dashboardViewMode === 'list') {
-            console.log(`Rendering question list view - Page ${appState.dashboardCurrentPage}/${totalPages} (${totalItems} items)`);
-            renderDashboardQuestionList(statsForCurrentPage, startIndex);
-            renderPaginationControls(totalItems, totalPages); // Render pagination for list view
-        } else if (appState.dashboardViewMode === 'chart') {
-            console.log("Rendering question analysis chart view...");
-             if (dom.questionAccuracyChartContainer) {
-                dom.questionAccuracyChartContainer.style.display = 'block'; // Show chart container
-            }
-            // Render chart using *all* filtered stats
-            await renderDashboardQuestionAnalysisChart(allFilteredStats);
-            // No pagination needed for chart view
-        }
-    } catch (error) {
-         console.error("Error rendering dashboard question analysis content:", error);
-         showNotification("問題分析データの表示中にエラーが発生しました。", "error");
-         // Show error message in the list area as fallback
-         if (dom.questionAccuracyList) dom.questionAccuracyList.innerHTML = '<li class="status-message error" style="padding: 15px; text-align: center;">表示エラーが発生しました。</li>';
-         if (dom.questionPagination) dom.questionPagination.innerHTML = ''; // Clear pagination on error
-    }
-}
-
-/**
- * ダッシュボードの問題リストビューをレンダリングする
- * @param {Array<Object>} stats - 現在のページに表示する問題統計データの配列
- * @param {number} startIndex - リストの最初の問題の全体インデックス (0始まり、連番表示用)
- */
-function renderDashboardQuestionList(stats, startIndex) {
-    if (!dom.questionAccuracyList) return;
-    const list = dom.questionAccuracyList;
-    list.innerHTML = ''; // Clear previous list items
-
-    if (!Array.isArray(stats) || stats.length === 0) {
-        // Display message if no questions match the criteria
-        list.innerHTML = '<li class="status-message" style="padding: 15px; text-align: center;">該当する問題がありません。フィルター条件を確認してください。</li>';
-        return;
-    }
-
-    const fragment = document.createDocumentFragment();
-    stats.forEach((q, index) => {
-        const itemIndex = startIndex + index; // Overall index for numbering
-        const li = document.createElement('li');
-        li.classList.add('question-accuracy-item');
-        li.dataset.questionId = q.id; // Store question ID
-        li.dataset.index = itemIndex; // Store overall index
-        li.setAttribute('role', 'button'); // Make it behave like a button
-        li.setAttribute('tabindex', '0'); // Make focusable
-        // Provide a descriptive label for screen readers
-        li.setAttribute('aria-label', `問題 ${itemIndex + 1} 詳細表示: ${q.question?.substring(0, 50) ?? '問題文なし'}...`);
-
-        // Question Preview Div
-        const questionPreview = document.createElement('div');
-        questionPreview.classList.add('question-text-preview');
-        // Use textContent for safety
-        questionPreview.textContent = `${itemIndex + 1}. ${q.question || '問題文なし'}`;
-        li.appendChild(questionPreview);
-
-        // Score Container Div
-        const scoreContainer = document.createElement('div');
-        scoreContainer.classList.add('score-container');
-
-        // Accuracy Span
-        const accuracySpan = document.createElement('span');
-        accuracySpan.classList.add('accuracy-score');
-        if (q.accuracy === -1) { // Unanswered
-            accuracySpan.textContent = '未解答';
-            accuracySpan.style.color = 'var(--light-text)'; // Use light text color
-        } else {
-            accuracySpan.textContent = `${q.accuracy}%`;
-            // Apply color classes based on thresholds
-            if (q.accuracy <= DASHBOARD_ACCURACY_THRESHOLDS.LOW) accuracySpan.classList.add('low');
-            else if (q.accuracy <= DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM) accuracySpan.classList.add('medium');
-            else accuracySpan.classList.add('high');
-        }
-        scoreContainer.appendChild(accuracySpan);
-
-        // Counts Span (Correct/Total)
-        const countsSpan = document.createElement('span');
-        countsSpan.classList.add('answer-counts');
-        // Display counts only if answered
-        countsSpan.textContent = q.totalCount > 0 ? `(${q.correctCount} / ${q.totalCount})` : '';
-        scoreContainer.appendChild(countsSpan);
-
-        li.appendChild(scoreContainer);
-        fragment.appendChild(li);
-    });
-
-    list.appendChild(fragment);
-}
-
-
-/**
- * 問題リストアイテムに対するキーダウンイベント処理 (アクセシビリティ)
- * @param {KeyboardEvent} event
- */
-function handleQuestionItemKeydown(event) {
-    const currentItem = event.target.closest('.question-accuracy-item');
-    if (!currentItem) return; // Event didn't originate from a list item
-
-    if (event.key === 'Enter' || event.key === ' ') {
-        // Activate the item like a click
-        event.preventDefault(); // Prevent space scroll
-        showDetailForListItem(currentItem);
-    }
-    else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-         // Navigate between list items
-         event.preventDefault(); // Prevent page scroll
-         const sibling = event.key === 'ArrowDown'
-             ? currentItem.nextElementSibling
-             : currentItem.previousElementSibling;
-         // Move focus if a valid sibling item exists
-         if (sibling && sibling.matches('.question-accuracy-item')) {
-             sibling.focus();
+    const query = appState.dashboardSearchQuery.toLowerCase().trim();
+    if (query) {
+         try {
+             // More robust search with potential regex special character escaping? Or simple includes is ok?
+             const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape basic regex chars
+             const regex = new RegExp(escapedQuery, 'i'); // Case-insensitive search
+             questionStats = questionStats.filter(q =>
+                regex.test(q.question || '') ||
+                (q.options || []).some(opt => regex.test(opt)) ||
+                 regex.test(q.correctAnswer || '') ||
+                regex.test(q.explanation || '')
+            );
+         } catch(e) { console.error("Search regex error:", e); /* Fallback to simple includes */
+              questionStats = questionStats.filter(q =>
+                 (q.question || '').toLowerCase().includes(query) ||
+                 (q.options || []).some(opt => (opt||'').toLowerCase().includes(query)) ||
+                  (q.correctAnswer || '').toLowerCase().includes(query) ||
+                 (q.explanation || '').toLowerCase().includes(query)
+            );
          }
     }
-    // Add Home/End key support? (Optional)
-    else if (event.key === 'Home') {
-        event.preventDefault();
-        const firstItem = currentItem.parentElement?.querySelector('.question-accuracy-item:first-child');
-        if (firstItem) firstItem.focus();
-    } else if (event.key === 'End') {
-        event.preventDefault();
-        const lastItem = currentItem.parentElement?.querySelector('.question-accuracy-item:last-child');
-        if (lastItem) lastItem.focus();
-    }
+
+     // 4. Apply Sorting
+     questionStats.sort((a, b) => {
+         const sortOrder = appState.dashboardSortOrder;
+         switch (sortOrder) {
+             case 'accuracyAsc': return (a.accuracy === -1 ? -Infinity : a.accuracy) - (b.accuracy === -1 ? -Infinity : b.accuracy) || a.originalIndex - b.originalIndex;
+             case 'accuracyDesc': return (b.accuracy === -1 ? -Infinity : b.accuracy) - (a.accuracy === -1 ? -Infinity : a.accuracy) || a.originalIndex - b.originalIndex;
+             case 'mostIncorrect': return b.incorrectCount - a.incorrectCount || a.originalIndex - b.originalIndex;
+             case 'lastAnswered': return b.lastAnswered - a.lastAnswered || a.originalIndex - b.originalIndex;
+             case 'questionOrder': default: return a.originalIndex - b.originalIndex;
+         }
+     });
+
+     return questionStats;
 }
 
-/**
- * 問題リストアイテムがクリックされたときのハンドラ (イベント委任)
- * @param {MouseEvent} event - クリックイベント
- */
-function handleQuestionItemClick(event) {
-    const targetItem = event.target.closest('.question-accuracy-item');
-    if (targetItem) {
-        showDetailForListItem(targetItem); // Show details for the clicked item
+
+// ====================================================================
+// 設定画面関連処理 (Settings)
+// ====================================================================
+
+/** 現在の設定をUIに反映 */
+function loadSettingsToUI() {
+     // Learning Settings
+     safeSetChecked(dom.settingShuffleOptions, appState.settings.shuffleOptions);
+     safeSetValue(dom.settingLowAccuracyThreshold, appState.settings.lowAccuracyThreshold);
+     // Appearance Settings
+     safeSetValue(dom.settingTheme, appState.settings.theme);
+     // Reflect items per page (used by Home and Dashboard)
+     if (dom.dashboardItemsPerPage) dom.dashboardItemsPerPage.value = appState.settings.dashboardQuestionsPerPage.toString();
+     // Potentially add setting for homeDecksPerPage if UI exists
+
+     // Reset save status
+    if (dom.settingsSaveStatus) {
+        updateStatusMessage(dom.settingsSaveStatus, '', 'info');
+         setSettingsUnsavedStatus(false); // Mark as saved initially
     }
+     // Update threshold display on home screen filter if available
+    if(dom.lowAccuracyThresholdDisplayFilter) safeSetText(dom.lowAccuracyThresholdDisplayFilter, appState.settings.lowAccuracyThreshold);
 }
 
-/**
- * 指定されたリストアイテムに対応する問題詳細を表示する
- * @param {HTMLElement} listItem - クリックまたはキー操作された<li>要素
- */
-function showDetailForListItem(listItem) {
-    const questionId = listItem.dataset.questionId;
-    const indexStr = listItem.dataset.index; // Get the overall index from data attribute
-    const deckId = appState.currentDashboardDeckId;
-
-    // Validate necessary data
-    if (!questionId || !deckId || !appState.allDecks[deckId] || indexStr === undefined) {
-        console.error("Missing data required to show question detail:", { questionId, deckId, indexStr });
-        showNotification("問題詳細の表示に必要な情報が見つかりません。", "error");
-        return;
-    }
-
-    // Re-fetch the *currently filtered and sorted* list to find the correct data object
-    // This ensures the displayed detail matches the list context
-    const allStats = getFilteredAndSortedQuestionStats();
-    const questionStat = allStats.find(qs => qs.id === questionId);
-
-    if (questionStat) {
-        const displayIndex = parseInt(indexStr, 10); // Use the stored overall index
-        showQuestionDetail(questionStat, displayIndex); // Pass data and index to display function
+/** 設定画面の閾値input変更時のハンドラ (バリデーションのみ) */
+function handleSettingThresholdChange() {
+    if (!dom.settingLowAccuracyThreshold) return;
+     const value = parseInt(dom.settingLowAccuracyThreshold.value, 10);
+    if (isNaN(value) || value < 1 || value > 99) {
+        showNotification("閾値は1～99の整数で入力してください。", "warning", 3000);
+         // Revert to current setting value temporarily for UX, actual save requires button
+         dom.settingLowAccuracyThreshold.value = appState.settings.lowAccuracyThreshold;
     } else {
-         // This might happen if the underlying data changed between list render and click
-         console.warn("Could not find stats data for clicked/selected question:", questionId);
-         showNotification("クリックされた問題データの取得に失敗しました。", "error");
+         // Valid input, mark settings as changed
+          setSettingsUnsavedStatus(true);
     }
+     // Also update the display on home screen filter label immediately
+     if(dom.lowAccuracyThresholdDisplayFilter) safeSetText(dom.lowAccuracyThresholdDisplayFilter, dom.settingLowAccuracyThreshold.value);
+
+}
+/** 設定画面: シャッフルチェックボックス変更ハンドラ */
+function handleSettingShuffleChange() {
+     setSettingsUnsavedStatus(true);
+}
+
+/** 設定変更の保存ボタンの状態を変更 */
+function setSettingsUnsavedStatus(hasUnsavedChanges) {
+    if(dom.saveSettingsButton) {
+         // Maybe add a visual cue, like changing button text or adding a '*'
+         // dom.saveSettingsButton.textContent = hasUnsavedChanges ? '設定を保存*' : '設定を保存';
+    }
+     // Show/hide unsaved changes message?
+     // updateStatusMessage(dom.settingsSaveStatus, hasUnsavedChanges ? '未保存の変更があります' : '', 'info');
 }
 
 
-/**
- * ダッシュボードの問題分析グラフビューをレンダリングする
- * @param {Array<Object>} stats - フィルター・ソートされた全問題統計データの配列
- */
-async function renderDashboardQuestionAnalysisChart(stats) {
-     // Ensure Chart.js is loaded
-     if (typeof Chart === 'undefined') {
-        console.error("Chart.js library is not loaded.");
-        showNotification("グラフ描画ライブラリが見つかりません。", "error");
-        if(dom.questionAccuracyNoData) {
-             dom.questionAccuracyNoData.textContent = "グラフ描画不可";
-             dom.questionAccuracyNoData.style.display = 'block';
-        }
-        if(dom.questionAccuracyChartContainer) dom.questionAccuracyChartContainer.style.display = 'none';
-        return;
-    }
-     // Check for essential DOM elements
-     if (!dom.questionAccuracyChart || !dom.questionAccuracyNoData || !dom.questionAccuracyChartContainer) {
-        console.warn("renderDashboardQuestionAnalysisChart: Chart elements missing.");
-        return;
-    }
-    const canvas = dom.questionAccuracyChart;
-    const noDataMessage = dom.questionAccuracyNoData;
-    const container = dom.questionAccuracyChartContainer;
+/** 設定を保存 */
+function saveSettings() {
+     const statusEl = dom.settingsSaveStatus;
+     updateStatusMessage(statusEl, '保存中...', 'info');
+     setSettingsUnsavedStatus(false); // Clear unsaved status
 
-    let ctx;
     try {
-         ctx = canvas.getContext('2d');
-         if (!ctx) throw new Error("Canvas 2D context is null.");
-    } catch (e) {
-        console.error("renderDashboardQuestionAnalysisChart: Failed to get 2D context.", e);
-        container.style.display = 'none'; // Hide container
-        noDataMessage.textContent = "グラフ描画エラー (Context取得失敗)";
-        noDataMessage.style.display = 'block';
-        return;
-    }
+         const newSettings = { ...appState.settings }; // Copy current state
 
-    // Destroy previous chart instance
-    if (questionAccuracyChart instanceof Chart) {
-        try { questionAccuracyChart.destroy(); } catch(e){}
-        questionAccuracyChart = null;
-    }
-
-    // Filter out unanswered questions for the distribution chart
-    const answeredStats = stats.filter(q => q.accuracy !== -1);
-
-    // Handle case with no answered questions
-    if (answeredStats.length === 0) {
-        container.style.display = 'block'; // Show container
-        canvas.style.display = 'none'; // Hide canvas
-        noDataMessage.textContent = "解答済みの問題データがありません。";
-        noDataMessage.style.display = 'block'; // Show message
-        console.log("renderDashboardQuestionAnalysisChart: No answered questions data.");
-        return;
-    }
-
-    // Prepare UI for chart
-    container.style.display = 'block';
-    canvas.style.display = 'block';
-    noDataMessage.style.display = 'none';
-
-    // --- Data Aggregation (Binning) ---
-    // Define accuracy bins (e.g., 0-10, 11-20, ..., 91-100)
-    const bins = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-    // Create labels for the bins
-    const labels = bins.slice(0, -1).map((bin, i) => {
-        const nextBin = bins[i+1];
-        if (i === 0) return `0-${nextBin}%`; // First bin label
-        return `${bin + 1}-${nextBin}%`; // Subsequent bin labels
-    });
-    // Initialize counts for each bin
-    const dataCounts = Array(labels.length).fill(0);
-
-    // Count questions falling into each accuracy bin
-    answeredStats.forEach(q => {
-        const acc = q.accuracy;
-        // Find the correct bin index for the accuracy
-        let binIndex = bins.findIndex((bin, i) => {
-            if (i === 0) return acc >= bin && acc <= bins[i+1];
-            return acc > bin && acc <= bins[i+1];
-        });
-        // Handle edge case for 0% exactly if needed differently (covered by >= 0)
-        // if (acc === 0) binIndex = 0;
-
-        if (binIndex >= 0 && binIndex < dataCounts.length) {
-            dataCounts[binIndex]++;
-        } else if (acc === 0 && binIndex === -1) { // Explicitly handle 0 if findIndex misses it
-             dataCounts[0]++;
-        } else {
-            console.warn(`Could not determine bin for accuracy: ${acc}`);
-        }
-    });
-
-    // Determine bar colors based on accuracy thresholds
-    const backgroundColors = labels.map(label => {
-         // Extract the upper boundary of the bin label (e.g., "81-90%" -> 90)
-         const upperBoundary = parseInt(label.split('-')[1].replace('%',''), 10);
-         if (isNaN(upperBoundary)) return 'var(--secondary-color)'; // Fallback color
-
-         // Assign color based on the upper boundary relative to thresholds
-         if (upperBoundary <= DASHBOARD_ACCURACY_THRESHOLDS.LOW + 1) return 'rgba(231, 76, 60, 0.7)'; // Low (Red)
-         if (upperBoundary <= DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM + 1) return 'rgba(230, 126, 34, 0.7)'; // Medium (Orange/Yellow)
-         return 'rgba(46, 204, 113, 0.7)'; // High (Green)
-    });
-
-    // --- Chart Configuration ---
-    const chartConfig = {
-        type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: '問題数',
-                data: dataCounts,
-                backgroundColor: backgroundColors,
-                borderColor: 'rgba(44, 62, 80, 0.8)', // Dark border
-                borderWidth: 1,
-                barPercentage: 0.9, // Adjust bar width
-                categoryPercentage: 0.8 // Adjust space between bars
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            indexAxis: 'x', // Bars are vertical
-            plugins: {
-                legend: { display: false }, // Hide legend as colors are self-explanatory
-                tooltip: { // Customize tooltips
-                    callbacks: {
-                        title: (items) => `正答率 ${items[0].label}`, // Tooltip title shows range
-                        label: (ctx) => `問題数: ${ctx.parsed.y} 問` // Tooltip body shows count
-                    }
-                },
-                title: { // Chart title
-                    display: true,
-                    text: '正答率分布 (解答済み問題)',
-                    padding: { top: 10, bottom: 15 } // Add padding
-                }
-            },
-            scales: {
-                y: { // Vertical axis (Count)
-                    beginAtZero: true,
-                    title: { display: true, text: '問題数' },
-                    // Adjust ticks for better readability
-                    ticks: {
-                         stepSize: Math.max(1, Math.ceil(Math.max(...dataCounts) / 8)), // Dynamic step size, at least 1
-                         precision: 0 // Integer ticks
-                        }
-                },
-                x: { // Horizontal axis (Accuracy Range)
-                    title: { display: true, text: '正答率範囲 (%)' },
-                    grid: { display: false } // Hide vertical grid lines
-                }
-            },
-            // ★ Add onClick handler to switch to list view with filter
-            onClick: (event, elements) => {
-                if (elements.length > 0) { // If a bar was clicked
-                    const clickedIndex = elements[0].index;
-                    const clickedLabel = labels[clickedIndex];
-                    console.log(`Chart bar clicked: Index=${clickedIndex}, Label=${clickedLabel}`);
-
-                    // Determine the corresponding accuracy filter value
-                    let filterValue = 'all'; // Default
-                    const maxAcc = parseInt(clickedLabel.split('-')[1].replace('%',''), 10);
-                    if (!isNaN(maxAcc)) {
-                        if (maxAcc <= DASHBOARD_ACCURACY_THRESHOLDS.LOW + 1) filterValue = 'low';
-                        else if (maxAcc <= DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM + 1) filterValue = 'medium';
-                        else filterValue = 'high';
-                    }
-
-                    // Apply the filter and switch to list view
-                    appState.dashboardFilterAccuracy = filterValue;
-                    if (dom.dashboardFilterAccuracy) dom.dashboardFilterAccuracy.value = filterValue; // Update dropdown
-                    appState.dashboardCurrentPage = 1; // Reset page
-                    setDashboardViewMode('list'); // Switch view and trigger re-render
-                }
-            },
-            // Improve hover style for clickable bars
-             onHover: (event, chartElement) => {
-               event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
-            }
-        }
-    };
-
-    // --- Render Chart ---
-    try {
-        requestAnimationFrame(() => {
-             if (document.getElementById(canvas.id)) { // Check canvas exists
-                 questionAccuracyChart = new Chart(ctx, chartConfig);
-                 console.log("Question accuracy distribution chart rendered.");
+        // Read values from UI elements
+         if(dom.settingShuffleOptions) newSettings.shuffleOptions = dom.settingShuffleOptions.checked;
+         if(dom.settingLowAccuracyThreshold) {
+             const threshold = parseInt(dom.settingLowAccuracyThreshold.value, 10);
+             if (!isNaN(threshold) && threshold >= 1 && threshold <= 99) {
+                 newSettings.lowAccuracyThreshold = threshold;
              } else {
-                 console.warn("Question accuracy chart canvas removed before chart creation.");
+                  throw new Error("「苦手な問題」の閾値が無効です。"); // Should be validated already
              }
-        });
-    } catch (chartError) {
-        console.error("Error creating question accuracy chart:", chartError);
-        showNotification("問題正答率グラフの描画中にエラーが発生しました。", "error");
-        // Show error in UI
-        canvas.style.display = 'none';
-        noDataMessage.textContent = "グラフ描画エラー";
-        noDataMessage.style.display = 'block';
+         }
+         if(dom.settingTheme) newSettings.theme = dom.settingTheme.value;
+         // Read other settings like items per page if they have UI inputs
+
+         // Validate entire settings object again before saving (optional)
+         const validatedSettings = repairAndValidateSettings(newSettings);
+
+        // Compare with current state *before* validation for change detection? No, save validated.
+        // Only save if validated settings are different from current state
+        if (JSON.stringify(validatedSettings) !== JSON.stringify(appState.settings)) {
+             appState.settings = validatedSettings; // Update state with validated values
+
+            if (saveData(LS_KEYS.SETTINGS, appState.settings)) {
+                 console.log("Settings saved:", appState.settings);
+                 updateStatusMessage(statusEl, '設定を保存しました。', 'success');
+                 showNotification('設定が保存されました。', 'success');
+                 // Re-apply settings to UI/App state immediately if needed
+                 applyTheme(appState.settings.theme); // Apply theme choice
+                  // Update per-page counts in state if changed via settings (might be redundant if sync'd)
+                  appState.dashboardQuestionsPerPage = appState.settings.dashboardQuestionsPerPage;
+                  // Update dependent displays like filter threshold labels
+                  if(dom.lowAccuracyThresholdDisplayFilter) dom.lowAccuracyThresholdDisplayFilter.textContent = appState.settings.lowAccuracyThreshold;
+                  if (appState.activeScreen === 'home-screen') updateAllFilterCounts(); // Refresh counts if needed
+                  if (appState.activeScreen === 'dashboard-screen') renderDashboardQuestionAnalysis(); // Refresh dashboard view if per-page changed etc.
+
+             } else {
+                 // Save failed (likely storage issue) - saveData shows notification
+                 updateStatusMessage(statusEl, '保存エラー', 'error');
+                  // Maybe try to revert state? Risky. Best to reload or retry save.
+                  setSettingsUnsavedStatus(true); // Mark as unsaved again
+             }
+         } else {
+             console.log("No setting changes detected.");
+             updateStatusMessage(statusEl, '変更はありませんでした。', 'info');
+         }
+    } catch (error) {
+         console.error("Error saving settings:", error);
+         updateStatusMessage(statusEl, `保存エラー: ${error.message}`, 'error');
+         showNotification(`設定の保存エラー: ${error.message}`, 'error');
+          setSettingsUnsavedStatus(true);
+    } finally {
+         clearStatusMessageAfterDelay(statusEl, 3000);
     }
 }
 
-/**
- * 問題リストのページネーションコントロールをレンダリングする
- * @param {number} totalItems - フィルター後の総問題数
- * @param {number} totalPages - 総ページ数
- */
-function renderPaginationControls(totalItems, totalPages) {
-    if (!dom.questionPagination) return;
-    const pagination = dom.questionPagination;
-    pagination.innerHTML = ''; // Clear previous controls
 
-    // Don't show pagination if only one page or no items
-    if (totalPages <= 1 && totalItems > 0) {
-         // Optionally show just the item count if > 0 and only one page
-         const pageInfo = document.createElement('span');
-         pageInfo.classList.add('page-info');
-         pageInfo.textContent = `${totalItems}件`;
-         pagination.appendChild(pageInfo);
+// ====================================================================
+// AIプロンプトガイド関連処理 (Prompt Guide)
+// ====================================================================
+
+/** ガイド画面: プロンプト内のプレースホルダーを更新 */
+function updatePromptPlaceholders() {
+    if (!dom.promptTextTemplate || appState.activeScreen !== 'prompt-guide-screen') return;
+
+    const topic = dom.promptFieldTopic?.value || '[専門分野]';
+    const count = dom.promptFieldCount?.value || '[問題数]';
+    const level = dom.promptFieldLevel?.value || '[対象レベル]';
+
+     // Update visible placeholders in the template display
+     const placeholders = dom.promptTextTemplate.querySelectorAll('.prompt-placeholder');
+     placeholders.forEach(el => {
+         const targetId = el.dataset.target;
+         let value = '[未設定]';
+         if (targetId === 'prompt-field-topic') value = topic;
+         else if (targetId === 'prompt-field-count') value = count;
+         else if (targetId === 'prompt-field-level') value = level;
+         el.textContent = value;
+     });
+}
+
+/** ガイド画面: カスタマイズされたプロンプトをコピー */
+function copyPromptToClipboard() {
+     if (!dom.promptTextTemplate) return;
+     const statusEl = dom.copyStatus;
+     updateStatusMessage(statusEl, '', 'info'); // Clear status
+
+     // Get values from input fields
+     const topic = dom.promptFieldTopic?.value || '[専門分野]';
+     const count = dom.promptFieldCount?.value || '[問題数]';
+     const level = dom.promptFieldLevel?.value || '[対象レベル]';
+
+    // Get template text, clone node to avoid modifying original structure
+     const templateNode = dom.promptTextTemplate.cloneNode(true);
+     const placeholders = templateNode.querySelectorAll('.prompt-placeholder');
+
+     // Replace placeholders in the cloned node's text content extraction
+     let promptText = '';
+     if (templateNode.querySelector('code')) { // Get text from code tag
+          placeholders.forEach(el => {
+             const targetId = el.dataset.target;
+             let value = '';
+             if (targetId === 'prompt-field-topic') value = topic;
+             else if (targetId === 'prompt-field-count') value = count;
+             else if (targetId === 'prompt-field-level') value = level;
+             el.replaceWith(document.createTextNode(value)); // Replace strong tag with text
+         });
+          promptText = templateNode.querySelector('code').textContent;
+     } else {
+         console.warn("Could not find <code> tag within prompt template.");
+         promptText = templateNode.textContent; // Fallback
+     }
+
+     if (!promptText.trim()) {
+         updateStatusMessage(statusEl, 'プロンプト内容が空です', 'warning');
          return;
-    } else if (totalPages <= 1) {
-         return; // Hide pagination completely if 0 items or 1 page
-    }
+     }
 
-    const currentPage = appState.dashboardCurrentPage;
-
-    // Previous Button
-    const prevButton = document.createElement('button');
-    prevButton.innerHTML = '<i class="fas fa-chevron-left" aria-hidden="true"></i> 前へ';
-    prevButton.classList.add('button', 'small', 'secondary', 'page-nav');
-    prevButton.type = 'button';
-    prevButton.dataset.page = currentPage - 1;
-    prevButton.disabled = currentPage === 1;
-    prevButton.setAttribute('aria-label', '前のページへ');
-    if (prevButton.disabled) prevButton.setAttribute('aria-disabled', 'true');
-    pagination.appendChild(prevButton);
-
-    // Page Info Span
-    const pageInfo = document.createElement('span');
-    pageInfo.classList.add('page-info');
-    pageInfo.textContent = `${currentPage} / ${totalPages} ページ (${totalItems}件)`;
-    pageInfo.setAttribute('aria-live', 'polite'); // Announce page changes
-    pageInfo.setAttribute('role', 'status');
-    pagination.appendChild(pageInfo);
-
-    // Next Button
-    const nextButton = document.createElement('button');
-    nextButton.innerHTML = '次へ <i class="fas fa-chevron-right" aria-hidden="true"></i>';
-    nextButton.classList.add('button', 'small', 'secondary', 'page-nav');
-    nextButton.type = 'button';
-    nextButton.dataset.page = currentPage + 1;
-    nextButton.disabled = currentPage === totalPages;
-    nextButton.setAttribute('aria-label', '次のページへ');
-     if (nextButton.disabled) nextButton.setAttribute('aria-disabled', 'true');
-    pagination.appendChild(nextButton);
-}
-
-/**
- * ページネーションコントロール内のボタンクリックを処理する (イベント委任)
- * @param {MouseEvent} event - クリックイベント
- */
-function handlePaginationClick(event) {
-    const targetButton = event.target.closest('.page-nav');
-    // Ensure button exists and is not disabled
-    if (targetButton && !targetButton.disabled) {
-        const page = parseInt(targetButton.dataset.page, 10);
-        // Validate page number
-        if (!isNaN(page) && page >= 1) {
-            appState.dashboardCurrentPage = page;
-            renderDashboardQuestionAnalysis(); // Re-render the list section
-
-            // Focus the list after pagination for better keyboard navigation flow
-            const listElement = dom.questionAccuracyList;
-            if (listElement) {
-                 // Scroll list to top smoothly
-                 listElement.scrollTo({ top: 0, behavior: 'smooth' });
-                 // Set focus to the list container itself after a short delay
-                 setTimeout(() => listElement.focus(), 100);
-            }
-        }
-    }
+    copyTextToClipboard(promptText)
+         .then(() => {
+             updateStatusMessage(statusEl, 'コピーしました！', 'success');
+             showNotification('プロンプトをクリップボードにコピーしました。', 'success', 2500);
+             clearStatusMessageAfterDelay(statusEl);
+         })
+         .catch(err => {
+             console.error("Failed to copy prompt:", err);
+             updateStatusMessage(statusEl, 'コピー失敗', 'error');
+              showNotification('クリップボードへのコピーに失敗しました。', 'error');
+         });
 }
 
 
-/**
- * 指定された問題の詳細情報を表示する
- * @param {Object} questionStat - 表示する問題のデータ (統計情報含む)
- * @param {number} displayIndex - リスト上での表示インデックス (0始まり)
- */
-function showQuestionDetail(questionStat, displayIndex) {
-     // Check if all required detail view elements are present
-     const requiredKeys = ['questionDetailView', 'detailQuestionNumber', 'detailQuestionText', 'detailCorrectAnswer', 'detailAccuracy', 'detailCorrectCount', 'detailTotalCount', 'detailRecentHistory', 'closeDetailView'];
-     if (requiredKeys.some(key => !dom[key])) {
-        console.error("showQuestionDetail: One or more detail view DOM elements are missing.");
-        showNotification("問題詳細の表示に必要な要素が見つかりません。", "error");
-        return;
-    }
-
-    // Populate detail fields using textContent for security
-    dom.detailQuestionNumber.textContent = displayIndex + 1; // Display 1-based index
-    dom.detailQuestionText.textContent = questionStat.question || '問題文なし';
-    dom.detailCorrectAnswer.textContent = questionStat.correctAnswer || '正解情報なし';
-
-    // Display Accuracy and Counts
-    const { accuracy, correctCount, totalCount } = questionStat;
-    if (accuracy !== undefined && accuracy >= -1) { // Check if accuracy is valid
-        if (accuracy === -1) { // Unanswered case
-            dom.detailAccuracy.textContent = '未解答';
-            dom.detailCorrectCount.textContent = '0';
-            dom.detailTotalCount.textContent = '0';
-        } else { // Answered case
-            dom.detailAccuracy.textContent = `${accuracy}%`;
-            dom.detailCorrectCount.textContent = correctCount ?? '0';
-            dom.detailTotalCount.textContent = totalCount ?? '0';
-        }
-    } else { // Fallback if accuracy data is missing/invalid
-        dom.detailAccuracy.textContent = '-';
-        dom.detailCorrectCount.textContent = '-';
-        dom.detailTotalCount.textContent = '-';
-    }
-
-    // Display Recent History
-    const historyList = dom.detailRecentHistory;
-    historyList.innerHTML = ''; // Clear previous history
-    // Get the last N history entries, reversed to show most recent first
-    const recentHistory = (Array.isArray(questionStat.history) ? questionStat.history : [])
-                            .slice(-MAX_RECENT_HISTORY).reverse();
-
-    if (recentHistory.length === 0) {
-        historyList.innerHTML = '<li>解答履歴はありません。</li>';
-    } else {
-        const fragment = document.createDocumentFragment();
-        recentHistory.forEach(h => {
-            const li = document.createElement('li');
-
-            // Timestamp Span
-            const tsSpan = document.createElement('span');
-            tsSpan.textContent = formatDate(h.ts); // Format the timestamp
-
-            // Result + Evaluation Span
-            const resultSpan = document.createElement('span');
-            const resultClass = h.correct ? 'correct' : 'incorrect';
-            const resultText = h.correct ? '正解' : '不正解';
-            let evalText = '';
-            if (h.evaluation) {
-                const evalMap = { difficult: '難しい', normal: '普通', easy: '簡単' };
-                evalText = ` (<span class="eval" title="${h.evaluation}">${evalMap[h.evaluation] || h.evaluation}</span>)`;
-            } else {
-                 // Indicate if no evaluation was given
-                 evalText = ' (<span class="eval" title="評価なし">-</span>)';
-            }
-            // Use innerHTML carefully for structured text
-            resultSpan.innerHTML = `<span class="${resultClass}">${resultText}</span>${evalText}`;
-
-            li.appendChild(tsSpan);
-            li.appendChild(resultSpan);
-            fragment.appendChild(li);
-        });
-        historyList.appendChild(fragment);
-    }
-
-    // Show the detail view and manage focus/scroll
-    dom.questionDetailView.style.display = 'block';
-    // Use setTimeout to ensure the element is visible before scrolling/focusing
-    setTimeout(() => {
-        // Check again if view is still supposed to be visible
-        if(dom.questionDetailView && dom.questionDetailView.style.display === 'block') {
-            // Scroll the detail view into the viewport smoothly
-            dom.questionDetailView.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            // Focus the close button for accessibility
-            dom.closeDetailView?.focus();
-        }
-    }, 50); // Short delay
+/** ガイド画面: JSONチェックinputハンドラ (デバウンス) */
+function handleJsonCheckInput() {
+     checkJsonFormat(); // Check automatically on input change (debounced)
 }
 
-/** 問題詳細表示エリアを閉じる */
-function closeQuestionDetailView() {
-    if (dom.questionDetailView && dom.questionDetailView.style.display !== 'none') {
-        dom.questionDetailView.style.display = 'none';
-        console.log("Question detail view closed.");
-        // Return focus to the list (or a suitable element) after closing
-        // Focusing the list allows users to continue navigating with arrows
-        const listElement = dom.questionAccuracyList;
-         if (listElement && appState.dashboardViewMode === 'list') {
-            listElement.focus();
-        } else {
-             // Fallback focus if list isn't appropriate (e.g., chart view)
-             dom.dashboardFilterAccuracy?.focus(); // Focus filter dropdown as a fallback
+/** ガイド画面: 入力されたJSON文字列の形式を簡易チェック */
+function checkJsonFormat() {
+     const inputEl = dom.jsonCheckInput;
+     const statusEl = dom.jsonCheckStatus;
+     if (!inputEl || !statusEl) return;
+
+     const jsonString = inputEl.value.trim();
+     if (!jsonString) {
+         updateStatusMessage(statusEl, '', 'info'); // Clear if empty
+         return;
+     }
+
+    try {
+         const parsedData = JSON.parse(jsonString);
+        // Basic validation (is array? has items?)
+        if (!Array.isArray(parsedData)) {
+            throw new Error("形式エラー: 全体が配列 [...] ではありません。");
         }
-    }
+         if (parsedData.length === 0) {
+             updateStatusMessage(statusEl, '形式OK (ただし問題が含まれていません)', 'warning');
+         } else {
+             // Optionally run deeper validation on first question?
+             const firstQValidation = repairAndValidateQuestion(parsedData[0], 'check', 0);
+             if (firstQValidation) {
+                  updateStatusMessage(statusEl, '形式OK (基本的な構造は正しいようです)', 'success');
+             } else {
+                  updateStatusMessage(statusEl, '警告: 配列形式ですが、最初の問題の構造に問題がある可能性があります。', 'warning');
+             }
+         }
+     } catch (e) {
+         updateStatusMessage(statusEl, `形式エラー: ${e.message}`, 'error');
+     }
 }
 
 // ====================================================================
-// ヘルパー関数 (Utility Functions)
+// ヘルパー関数 (Utilities)
 // ====================================================================
 
-/**
- * 配列の要素をシャッフルする (Fisher-Yates algorithm) - 不変性を保つ
- * @template T
- * @param {T[]} array - シャッフルしたい配列
- * @returns {T[]} シャッフルされた新しい配列。入力が配列でない場合は空配列を返す。
- */
+/** UUID (簡易版) を生成 */
+function generateUUID(prefix = 'id') {
+     return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+/** 配列をシャッフルして新しい配列を返す (Fisher-Yates) */
 function shuffleArray(array) {
-    if (!Array.isArray(array)) {
-        console.warn("shuffleArray: Input is not an array! Returning empty array.", array);
-        return [];
-    }
-    // Create a shallow copy to avoid modifying the original array
+    if (!Array.isArray(array)) return [];
     const shuffled = [...array];
-    // Fisher-Yates shuffle algorithm
     for (let i = shuffled.length - 1; i > 0; i--) {
-        // Pick a random index from 0 to i
         const j = Math.floor(Math.random() * (i + 1));
-        // Swap elements shuffled[i] and shuffled[j]
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     return shuffled;
 }
 
-/**
- * Unixタイムスタンプ (ミリ秒) を "YYYY/MM/DD HH:mm" 形式の日時文字列に変換する
- * @param {number | null | undefined} timestamp - Unixタイムスタンプ (ミリ秒)
- * @returns {string} フォーマットされた日時文字列。"----/--/-- --:--" または "日付エラー"
- */
+/** タイムスタンプを "YYYY/MM/DD HH:mm" 形式にフォーマット */
 function formatDate(timestamp) {
-    const placeholder = "----/--/-- --:--"; // Placeholder for invalid/missing dates
-    // Check if timestamp is a valid positive number
-    if (typeof timestamp !== 'number' || !timestamp || timestamp <= 0 || isNaN(timestamp)) {
-         // console.warn("formatDate: Invalid or missing timestamp:", timestamp);
-         return placeholder;
+    if (!timestamp || typeof timestamp !== 'number' || timestamp <= 0) return '-';
+     try {
+         // Use Intl.DateTimeFormat for locale-aware formatting (if available & desired)
+         return new Intl.DateTimeFormat('ja-JP', DATE_FORMAT_OPTIONS).format(new Date(timestamp));
+         // Fallback to manual formatting if needed
+         // const d = new Date(timestamp);
+         // ... manual formatting ...
+     } catch (e) {
+        console.error("Date formatting error:", e);
+        return '日付エラー';
     }
-    try {
-        const date = new Date(timestamp);
-        // Check if the created Date object is valid
-        if (isNaN(date.getTime())) {
-             console.warn("formatDate: Invalid Date object created from timestamp:", timestamp);
-             return placeholder;
+}
+
+/** テキストを指定要素に安全に設定 */
+function safeSetText(element, text) {
+     if (element) {
+         element.textContent = text !== null && text !== undefined ? String(text) : '';
+     }
+}
+
+/** valueを指定要素に安全に設定 */
+function safeSetValue(element, value) {
+     if (element) {
+         element.value = value !== null && value !== undefined ? String(value) : '';
+     }
+}
+
+/** checkedを指定要素に安全に設定 */
+function safeSetChecked(element, isChecked) {
+     if (element && typeof element.checked === 'boolean') {
+         element.checked = !!isChecked;
+     }
+}
+
+/** HTML特殊文字をエスケープ */
+function escapeHtml(unsafe) {
+     if (typeof unsafe !== 'string') return '';
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+}
+
+/** 特定のクラスを持つ要素に 'active' クラスを設定/解除 */
+function setActiveClass(element, isActive) {
+    element?.classList.toggle('active', isActive);
+}
+/** 要素のaria-pressed属性を設定 */
+function setAriaPressed(element, isPressed) {
+     element?.setAttribute('aria-pressed', String(isPressed));
+}
+/** 要素のaria-disabled属性を設定 */
+function setAriaDisabled(element, isDisabled) {
+     element?.setAttribute('aria-disabled', String(isDisabled));
+}
+
+/** 指定されたIDのチャートインスタンスを破棄 */
+function destroyChart(chartKey) {
+     if (appState.charts[chartKey] instanceof Chart) {
+         try { appState.charts[chartKey].destroy(); console.log(`Chart '${chartKey}' destroyed.`); } catch (e) { console.error(`Error destroying chart '${chartKey}':`, e); }
+         appState.charts[chartKey] = null;
+     }
+}
+/** Chart.jsが利用可能かチェック */
+function checkChartJSAvaible() {
+     if (typeof Chart === 'undefined') {
+        console.error("Chart.js is not available.");
+        return false;
+    }
+    return true;
+}
+/** Chart.jsで共通的に使うオプションを生成 */
+function getBaseChartOptions(customOptions = {}) {
+     // Get theme-aware colors
+     const computedStyle = getComputedStyle(document.body);
+     const gridColor = computedStyle.getPropertyValue('--border-color').trim();
+     const textColor = computedStyle.getPropertyValue('--text-light').trim();
+     const titleColor = computedStyle.getPropertyValue('--text-dark').trim();
+     const tooltipBg = hsla(getHue(computedStyle.getPropertyValue('--bg-card-dark').trim()), 10%, 20%, 0.85); // Use a dark tooltip bg generally
+
+     return deepMerge({ // Deep merge base and custom options
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 400 }, // Subtle animation
+         layout: { padding: { top: 10, bottom: 0, left: 0, right: 10 } }, // Add padding
+        plugins: {
+            legend: {
+                position: 'bottom',
+                labels: { padding: 20, usePointStyle: true, color: textColor }
+            },
+             tooltip: {
+                 enabled: true,
+                 backgroundColor: tooltipBg,
+                 titleColor: computedStyle.getPropertyValue('--text-dark-dark').trim(), // Light title for dark bg
+                 bodyColor: computedStyle.getPropertyValue('--text-dark-dark').trim(), // Light body for dark bg
+                 titleFont: { weight: 'bold' },
+                 bodySpacing: 5,
+                 padding: 10,
+                 borderColor: gridColor,
+                 borderWidth: 1,
+                 usePointStyle: true,
+                 callbacks: customOptions.tooltipCallbacks || {} // Allow custom callbacks
+             },
+             title: {
+                 display: !!customOptions.titleText,
+                 text: customOptions.titleText || '',
+                 padding: { top: 10, bottom: 15 },
+                 font: { size: 14, weight: 'bold' }, // Relative font size?
+                 color: titleColor
+             }
+         },
+         interaction: { // Sensible defaults for interaction
+             mode: customOptions.interactionMode || 'nearest',
+             intersect: false,
+             axis: 'x' // Hover triggers on x-axis primarily
+         },
+         scales: customOptions.scales || { // Default scale options
+             x: { ticks: { color: textColor }, grid: { color: gridColor } },
+             y: { ticks: { color: textColor }, grid: { color: gridColor } }
+         },
+         onHover: customOptions.onHover || null, // Allow custom hover
+         onClick: customOptions.onClick || null // Allow custom click
+     }, customOptions); // Merge custom options over defaults
+}
+/** オブジェクトをディープマージする */
+function deepMerge(target, source) {
+  const output = { ...target };
+  if (isObject(target) && isObject(source)) {
+    Object.keys(source).forEach(key => {
+      if (isObject(source[key])) {
+        if (!(key in target)) Object.assign(output, { [key]: source[key] });
+        else output[key] = deepMerge(target[key], source[key]);
+      } else {
+        Object.assign(output, { [key]: source[key] });
+      }
+    });
+  }
+  return output;
+}
+/** 変数がオブジェクトかどうかチェック */
+function isObject(item) {
+  return (item && typeof item === 'object' && !Array.isArray(item));
+}
+/** HSL文字列からHue値を取得（失敗時は0）*/
+function getHue(hslString) {
+     try { return parseInt(hslString.match(/hsl\(\s*(\d+)/)?.[1] ?? '0', 10); } catch { return 0; }
+}
+
+/** 新しいチャートを生成し、Stateに保存 */
+function renderChart(chartKey, canvas, config) {
+     destroyChart(chartKey); // Ensure old one is gone
+     try {
+        // Check canvas again right before creation
+         if (document.body.contains(canvas)) {
+             appState.charts[chartKey] = new Chart(canvas.getContext('2d'), config);
+             console.log(`Chart '${chartKey}' rendered successfully.`);
+         } else {
+             console.warn(`Canvas for chart '${chartKey}' was removed before rendering.`);
+         }
+     } catch (e) {
+         console.error(`Error creating chart '${chartKey}':`, e);
+          // Show error in UI if possible (e.g., replacing canvas with text)
+          const container = canvas.closest('.chart-container');
+          if(container) {
+               const noDataEl = container.querySelector('.chart-no-data');
+              if(noDataEl) {
+                  noDataEl.textContent = "グラフ描画エラー";
+                  noDataEl.style.display = 'block';
+                  canvas.style.display = 'none';
+              }
+          }
+     }
+}
+
+/** 汎用ページネーションUIレンダリング */
+function renderGenericPagination(container, totalItems, totalPages, currentPage, buttonClassPrefix = 'page-nav') {
+    if (!container) return;
+    container.innerHTML = ''; // Clear
+    container.style.display = 'none'; // Hide initially
+
+    if (totalPages <= 1) { // Hide if only one page or no items
+         // Optionally show item count if needed even on one page
+         if (totalItems > 0) {
+              const pageInfo = document.createElement('span');
+              pageInfo.className = 'page-info';
+              pageInfo.textContent = `${totalItems}件`;
+              container.appendChild(pageInfo);
+              container.style.display = 'flex'; // Show if just displaying count
+         }
+        return;
+    }
+
+    container.style.display = 'flex'; // Show container
+
+    const createPageButton = (page, text = null, isActive = false, isDisabled = false, ariaLabel = '') => {
+         const button = document.createElement('button');
+         button.type = 'button';
+         button.className = `button small ${buttonClassPrefix} ${isActive ? 'primary' : 'secondary'}`;
+         button.dataset.page = page;
+         button.textContent = text !== null ? text : page;
+         button.disabled = isDisabled;
+         button.setAttribute('aria-label', ariaLabel || `ページ ${page}`);
+         if (isActive) button.setAttribute('aria-current', 'page');
+          if (isDisabled) button.setAttribute('aria-disabled', 'true');
+         return button;
+    };
+
+    // Previous Button
+    container.appendChild(createPageButton(currentPage - 1, '<i class="fas fa-chevron-left"></i>', false, currentPage === 1, '前のページへ'));
+
+     // Page Number Buttons (with ellipsis logic)
+     const buttonsToShow = getPaginationButtons(totalPages, currentPage, PAGINATION_BUTTON_COUNT);
+     buttonsToShow.forEach(pageNumber => {
+         if (pageNumber === '...') {
+             const ellipsis = document.createElement('span');
+             ellipsis.className = 'page-info ellipsis';
+             ellipsis.textContent = '...';
+              ellipsis.setAttribute('aria-hidden', 'true');
+             container.appendChild(ellipsis);
+         } else {
+             container.appendChild(createPageButton(pageNumber, null, pageNumber === currentPage, false));
+         }
+     });
+
+
+    // Next Button
+    container.appendChild(createPageButton(currentPage + 1, '<i class="fas fa-chevron-right"></i>', false, currentPage === totalPages, '次のページへ'));
+
+    // Total count info (optional)
+     const pageInfo = document.createElement('span');
+     pageInfo.className = 'page-info total-info'; // Different class for total count
+     pageInfo.textContent = `全 ${totalItems}件`;
+     container.appendChild(pageInfo); // Add at the end
+
+}
+
+/** ページネーションで表示するボタンの番号リストを生成 */
+function getPaginationButtons(totalPages, currentPage, maxButtons) {
+    if (totalPages <= maxButtons) {
+        return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const buttons = [];
+    const half = Math.floor((maxButtons - 3) / 2); // Subtract 3 for first, last, and ellipsis/current
+    let start = currentPage - half;
+    let end = currentPage + half;
+
+    // Add first page and potential ellipsis
+    buttons.push(1);
+    if (start > 2) buttons.push('...');
+
+    // Adjust start/end if close to beginning or end
+    if (currentPage <= half + 2) { // Close to beginning
+        start = 2;
+        end = maxButtons - 2; // Account for 1 and last page/ellipsis
+    } else if (currentPage >= totalPages - half - 1) { // Close to end
+        start = totalPages - maxButtons + 3; // Account for 1/ellipsis and last page
+        end = totalPages - 1;
+    }
+
+    // Add middle page numbers
+    for (let i = start; i <= end; i++) {
+        if (i > 1 && i < totalPages) {
+            buttons.push(i);
         }
-        // Extract date and time components
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0'); // Month is 0-indexed
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        // Format the string
-        return `${year}/${month}/${day} ${hours}:${minutes}`;
-    } catch (e) {
-        // Catch any unexpected errors during date processing
-        console.error("Error formatting date for timestamp:", timestamp, e);
-        return "日付エラー"; // Return error string
     }
+
+    // Add potential ellipsis and last page
+    if (end < totalPages - 1) buttons.push('...');
+    buttons.push(totalPages);
+
+    return buttons;
+}
+
+
+/** ページネーションボタンクリックからページ番号を取得 */
+function getPageFromPaginationClick(event, buttonClassPrefix = 'page-nav') {
+     const targetButton = event.target.closest(`.${buttonClassPrefix}`);
+     if (targetButton && !targetButton.disabled && targetButton.dataset.page) {
+        const page = parseInt(targetButton.dataset.page, 10);
+        return !isNaN(page) && page >= 1 ? page : null;
+    }
+    return null;
+}
+
+/** 個々の質問の正答率、カウント、最終解答日などを計算 */
+function calculateQuestionAccuracy(q) {
+    const history = q?.history || [];
+    const totalCount = history.length;
+    const correctCount = history.filter(h => h.correct).length;
+    const incorrectCount = totalCount - correctCount;
+    const accuracy = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : -1; // -1 for unanswered
+    const lastAnswered = totalCount > 0 ? history[totalCount - 1].ts : 0;
+    return { correctCount, totalCount, accuracy, lastAnswered, incorrectCount };
+}
+
+/** 正答率に応じたCSSクラス名を返す */
+function getAccuracyClass(accuracy) {
+    if (accuracy === -1) return 'unanswered';
+    if (accuracy <= DASHBOARD_ACCURACY_THRESHOLDS.LOW) return 'low';
+    if (accuracy <= DASHBOARD_ACCURACY_THRESHOLDS.MEDIUM) return 'medium';
+    return 'high';
+}
+
+/** ボタン要素を生成 */
+function createButton(config) {
+     const btn = document.createElement('button');
+     btn.type = 'button';
+     btn.id = config.id || '';
+     btn.className = `button ${config.class || 'secondary'}`;
+     btn.innerHTML = config.text; // Allow HTML like icons
+     if (config.ariaLabel) btn.setAttribute('aria-label', config.ariaLabel);
+     if (config.title) btn.title = config.title;
+     btn.disabled = config.disabled || false;
+     if (config.disabled) btn.setAttribute('aria-disabled', 'true');
+     if (config.data) {
+         Object.entries(config.data).forEach(([key, value]) => {
+             btn.dataset[key] = value;
+         });
+     }
+     if (config.onClick && typeof config.onClick === 'function') {
+         btn.addEventListener('click', config.onClick);
+     }
+     return btn;
+}
+/** 問題データが有効か簡易チェック */
+function isValidQuestion(questionData) {
+     return questionData &&
+            typeof questionData.question === 'string' && questionData.question &&
+            Array.isArray(questionData.options) && questionData.options.length >= 2 &&
+            typeof questionData.correctAnswer === 'string' && questionData.correctAnswer;
+}
+
+
+// ====================================================================
+// Polyfills & Compatibility (Optional, if needed)
+// ====================================================================
+// Add polyfills here if supporting older browsers, e.g., for 'closest', 'fetch', 'Promise', etc.
+// Example: Basic 'closest' polyfill
+if (!Element.prototype.closest) {
+    Element.prototype.closest = function(s) {
+        var el = this;
+        do {
+            if (Element.prototype.matches.call(el, s)) return el;
+            el = el.parentElement || el.parentNode;
+        } while (el !== null && el.nodeType === 1);
+        return null;
+    };
 }
 
 // ====================================================================
