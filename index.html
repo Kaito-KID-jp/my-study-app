@@ -169,7 +169,7 @@
                  <div id="answer-area" class="card-content" style="display: none;" aria-live="polite">
                      <hr>
                      <div id="feedback-container" class="feedback-container">
-                         <p id="feedback-message" class="feedback-message"><i class="feedback-icon fas"></i> <span></span></p>
+                         <p id="feedback-message" class="feedback-message"><i id="feedback-icon" class="feedback-icon fas"></i> <span></span></p> <!-- Add ID for icon -->
                      </div>
                      <p class="card-label">正解</p>
                      <div id="answer-text"></div>
@@ -241,7 +241,7 @@
                         <i class="fas fa-filter"></i> フィルター・設定 <i class="fas fa-chevron-down"></i>
                      </button>
                     <!-- Analysis Controls Panel (Collapsible on mobile) -->
-                     <div class="dashboard-analysis-controls collapsed" id="dashboard-analysis-controls-panel">
+                     <div class="dashboard-analysis-controls collapsed" id="dashboard-analysis-controls-panel"> <!-- ID変更 -->
                         <div class="control-group">
                             <label for="dashboard-filter-accuracy">正答率:</label>
                             <select id="dashboard-filter-accuracy" aria-label="正答率で問題を絞り込む">
@@ -302,7 +302,7 @@
                             </div>
                         </div>
                     </div>
-                     <!-- Question Detail View (Managed as Modal in v3.0) -->
+                     <!-- Question Detail View is now rendered inside a modal -->
                 </section>
             </div>
              <!-- Message when no deck is selected -->
@@ -330,6 +330,30 @@
                              <input type="number" id="setting-low-accuracy-threshold" class="setting-input" min="1" max="99" step="1" aria-describedby="threshold-note">
                              <span class="note" id="threshold-note">(この値以下の正答率の問題を抽出)</span>
                          </div>
+                     </div>
+                     <!-- V3.0 Added items per page settings -->
+                      <div class="setting-item">
+                         <label for="setting-home-items-per-page">ホーム画面 表示件数</label>
+                          <div>
+                              <select id="setting-home-items-per-page" class="setting-select" aria-describedby="home-items-note">
+                                 <option value="10">10件</option>
+                                 <option value="20">20件</option>
+                                 <option value="50">50件</option>
+                              </select>
+                              <span class="note" id="home-items-note">(ホーム画面の問題集リストの1ページあたりの表示件数)</span>
+                         </div>
+                     </div>
+                     <div class="setting-item">
+                         <label for="setting-dashboard-items-per-page">ダッシュボード 表示件数</label>
+                          <div>
+                             <select id="setting-dashboard-items-per-page" class="setting-select" aria-describedby="dash-items-note">
+                                 <option value="10">10件</option>
+                                 <option value="20">20件</option>
+                                 <option value="50">50件</option>
+                                 <option value="100">100件</option>
+                             </select>
+                              <span class="note" id="dash-items-note">(ダッシュボード問題リストの1ページあたりの表示件数)</span>
+                          </div>
                      </div>
                  </fieldset>
                   <!-- Appearance Settings Group -->
@@ -474,7 +498,7 @@
         <!-- Modal Dialog Area                                 -->
         <!-- ================================================== -->
          <div id="modal-overlay" class="modal-overlay no-print" style="display: none;">
-             <div id="modal-dialog" class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+             <div id="modal-dialog" class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1"> <!-- Add tabindex for focus -->
                 <header class="modal-header">
                     <h2 id="modal-title" class="modal-title-text">Modal Title</h2>
                     <button type="button" id="modal-close-button" class="modal-close-button close-button" aria-label="閉じる">×</button>
@@ -488,7 +512,6 @@
              </div>
          </div>
 
-
     </main>
 
     <!-- === Application Footer === -->
@@ -499,11 +522,7 @@
     <!-- === External Libraries === -->
     <!-- Chart.js Library -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha256-0q+JdOlScWOHcunpUk21uab1jW7C1deBQARHtKMcaB4=" crossorigin="anonymous"></script>
-    <!-- Chart.js Date Adapter (using date-fns) -->
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" integrity="sha256-6nqzDSbDjc8fLSa7Q+c6lFN7WPGQb1XhpUbdCTIbVhU=" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/date-fns@3.0.6/cdn.min.js" integrity="sha256-tJ9uN0v8xcF5R/+z4W29/PDyD9LwQSk49qjSnIKjs1k=" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/date-fns/locale/ja/cdn.min.js" integrity="sha256-tS+w+O/tGjOJS/X4lMqSQqP/qnlK2rGv+15cT4oe/ZA=" crossorigin="anonymous"></script>
-
+    <!-- Chart.js Date Adapter IS NOT NEEDED if using Intl.DateTimeFormat -->
     <!-- Your Application Script -->
     <script src="script.js"></script>
 </body>
