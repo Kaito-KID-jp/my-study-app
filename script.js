@@ -2899,9 +2899,22 @@ function handleAnswerSubmission(selectedOption, correctAnswer) {
     safeSetStyle(dom.answerArea, 'display', 'block');
     safeSetStyle(dom.evaluationControls, 'display', 'flex'); // Use flex for layout
 
-    // Scroll the evaluation controls into view and focus the first button
-     dom.evaluationControls.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-     setTimeout(() => dom.evaluationControls.querySelector('.eval-button')?.focus(), 100);
+    // --- UX Improvement: Scroll evaluation controls into view ---
+    // Slightly delay scrollIntoView to allow rendering and animation
+    setTimeout(() => {
+        if (dom.evaluationControls && dom.evaluationControls.offsetParent !== null) { // Check if visible
+            dom.evaluationControls.scrollIntoView({
+                behavior: 'smooth',
+                block: 'nearest' // 'nearest' minimizes scroll distance
+            });
+            // Focus the first evaluation button after scrolling
+            setTimeout(() => dom.evaluationControls.querySelector('.eval-button')?.focus(), 150); // Slightly longer delay for focus after scroll
+        } else {
+            // Fallback focus if eval controls not found (shouldn't happen)
+             dom.answerArea?.focus(); // Focus answer area as fallback
+        }
+    }, 50); // Short delay before starting scroll
+    // --- End UX Improvement ---
 }
 
 /** 理解度評価ボタンクリックハンドラ */
@@ -3890,8 +3903,10 @@ function renderDashboardQuestionAnalysisChart(questionStats) {
                  }
              },
              onHover: (event, chartElement) => { // Change cursor on hover
-                 event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
-             }
+                if (event.native && event.native.target) {
+                    event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
+                }
+            }
         }
     });
 
@@ -4747,5 +4762,5 @@ if (!Element.prototype.closest) {
 
 
 // ====================================================================
-// End of file: script.js V3.0 (Error Corrected x3)
+// End of file: script.js V3.0 (UX Improvement Added)
 // ====================================================================
