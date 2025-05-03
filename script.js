@@ -3009,20 +3009,22 @@ function recordQuestionHistory(deckId, questionId, isCorrect, evaluation) {
 function moveToNextQuestion() {
     appState.currentQuestionIndex++;
      if (appState.currentQuestionIndex < appState.studyList.length) {
-         // --- UX Improvement: Scroll to top before displaying next question ---
-         window.scrollTo(SCROLL_TOP_OPTIONS); // Execute scroll immediately
+        // --- UX Improvement: Scroll to top before displaying next question ---
+        window.scrollTo(SCROLL_TOP_OPTIONS); // Execute scroll immediately
 
-         // Use setTimeout to display question slightly after scroll starts
-         // Ensure display happens *after* the scroll has likely initiated
-         setTimeout(() => {
-             displayCurrentQuestion(); // This function handles focusing the first option
-         }, SCROLL_DELAY + ); // Adjusted delay slightly more than scroll delay
-         // --- End UX Improvement ---
+        // Use requestAnimationFrame for smoother transition (optional but recommended)
+        requestAnimationFrame(() => {
+            // Display the question after the scroll has likely started
+            // No need for additional setTimeout here usually
+            displayCurrentQuestion(); // This function handles focusing the first option
+        });
+        // --- End UX Improvement ---
      } else {
          // If no more questions, show the completion screen
          showStudyCompletion();
      }
 }
+
 
 /** 学習セッション完了処理 */
 function showStudyCompletion() {
@@ -4772,5 +4774,5 @@ if (!Element.prototype.closest) {
 
 
 // ====================================================================
-// End of file: script.js V3.0 (Scroll UX Improved v2)
+// End of file: script.js V3.0 (Scroll UX Improved v3)
 // ====================================================================
