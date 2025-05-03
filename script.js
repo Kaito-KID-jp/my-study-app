@@ -3016,7 +3016,7 @@ function moveToNextQuestion() {
          // Ensure display happens *after* the scroll has likely initiated
          setTimeout(() => {
              displayCurrentQuestion(); // This function handles focusing the first option
-         }, SCROLL_DELAY + 50); // Adjusted delay slightly more than scroll delay
+         }, SCROLL_DELAY + ); // Adjusted delay slightly more than scroll delay
          // --- End UX Improvement ---
      } else {
          // If no more questions, show the completion screen
