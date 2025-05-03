@@ -1,10 +1,4 @@
 // ====================================================================
-// AI問題生成学習アプリ - アプリケーションロジック V3.0
-// ====================================================================
-
-"use strict";
-
-// ====================================================================
 // アプリケーション状態 (State)
 // ====================================================================
 const appState = {
@@ -151,7 +145,8 @@ const DATE_FORMAT_OPTIONS = { // Intl.DateTimeFormat オプション
     hour: '2-digit', minute: '2-digit', hour12: false
 };
 const PAGINATION_BUTTON_COUNT = 5; // ページネーション表示ボタン数 (Current ± (COUNT-1)/2 )
-const SCROLL_OPTIONS = { behavior: 'smooth', block: 'start' }; // スクロールオプション
+const SCROLL_OPTIONS = { behavior: 'smooth', block: 'start' }; // スクロールオプション (回答後解説用)
+const SCROLL_TOP_OPTIONS = { top: 0, behavior: 'smooth' }; // スクロールオプション (次の問題用)
 const FOCUS_DELAY = 150; // フォーカス設定までの遅延時間(ms)
 const SCROLL_DELAY = 50; // スクロール開始までの遅延時間(ms)
 
@@ -1013,7 +1008,7 @@ function navigateToScreen(screenId, isInitialLoad = false) {
     // Avoid unnecessary navigation if already on the target screen, unless initial load
     if (!isInitialLoad && screenId === appState.activeScreen) {
         console.log(`Already on screen: ${screenId}. Scrolling to top.`);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.scrollTo(SCROLL_TOP_OPTIONS); // Use defined scroll options
         return;
     }
 
@@ -1096,9 +1091,9 @@ function navigateToScreen(screenId, isInitialLoad = false) {
          }
      }, FOCUS_DELAY); // Use constant for delay
 
-    // Scroll to top after navigation (except initial load)
-    if (!isInitialLoad) {
-         window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Scroll to top after navigation (except initial load or study screen)
+    if (!isInitialLoad && screenId !== 'study-screen') {
+         window.scrollTo(SCROLL_TOP_OPTIONS);
     }
 }
 
@@ -2907,12 +2902,9 @@ function handleAnswerSubmission(selectedOption, correctAnswer) {
     // Slightly delay scrollIntoView to allow rendering and animation
     setTimeout(() => {
         if (dom.answerArea && dom.answerArea.offsetParent !== null) { // Check if visible
-            dom.answerArea.scrollIntoView({
-                behavior: 'smooth',
-                block: 'start' // Align top of answer area with top of viewport
-            });
+            dom.answerArea.scrollIntoView(SCROLL_OPTIONS); // Use constant
             // Focus the first evaluation button after scrolling
-            setTimeout(() => dom.evaluationControls?.querySelector('.eval-button')?.focus(), FOCUS_DELAY + 200); // Longer delay for focus after scroll
+            setTimeout(() => dom.evaluationControls?.querySelector('.eval-button')?.focus(), FOCUS_DELAY + 200); // Slightly longer delay for focus after scroll
         } else {
             // Fallback focus if answer area not found (shouldn't happen)
              dom.evaluationControls?.querySelector('.eval-button')?.focus();
@@ -3012,11 +3004,11 @@ function moveToNextQuestion() {
     appState.currentQuestionIndex++;
      if (appState.currentQuestionIndex < appState.studyList.length) {
          // --- UX Improvement: Scroll to top before displaying next question ---
-         window.scrollTo({ top: 0, behavior: 'smooth' });
+         window.scrollTo(SCROLL_TOP_OPTIONS); // Use constant
          // Use setTimeout to display question after scroll starts/finishes
          setTimeout(() => {
              displayCurrentQuestion();
-         }, 100); // Delay slightly to allow scroll to start
+         }, SCROLL_DELAY + 50); // Delay slightly more than scroll delay
          // --- End UX Improvement ---
      } else {
          // If no more questions, show the completion screen
