@@ -151,6 +151,10 @@ const DATE_FORMAT_OPTIONS = { // Intl.DateTimeFormat オプション
     hour: '2-digit', minute: '2-digit', hour12: false
 };
 const PAGINATION_BUTTON_COUNT = 5; // ページネーション表示ボタン数 (Current ± (COUNT-1)/2 )
+const SCROLL_OPTIONS = { behavior: 'smooth', block: 'start' }; // スクロールオプション
+const FOCUS_DELAY = 150; // フォーカス設定までの遅延時間(ms)
+const SCROLL_DELAY = 50; // スクロール開始までの遅延時間(ms)
+
 
 // ====================================================================
 // DOM要素参照 & グローバル変数
@@ -932,7 +936,7 @@ function showModal(options) {
               // Fallback: Focus the modal dialog itself (requires tabindex="-1" on dialog)
               dom.modalDialog.focus();
          }
-    }, 100); // 100ms delay seems reasonable
+    }, FOCUS_DELAY); // Use constant for delay
 }
 
 /** モーダルダイアログを閉じる */
@@ -1090,7 +1094,7 @@ function navigateToScreen(screenId, isInitialLoad = false) {
                  dom.appHeaderTitle?.focus();
              }
          }
-     }, 150); // Delay allows screen transition/rendering
+     }, FOCUS_DELAY); // Use constant for delay
 
     // Scroll to top after navigation (except initial load)
     if (!isInitialLoad) {
@@ -2750,7 +2754,7 @@ function displayCurrentQuestion() {
     updateStudyProgress(); // Update progress bar and text
 
     // Focus the first option button after rendering
-    setTimeout(() => dom.optionsButtonsContainer?.querySelector('.option-button')?.focus(), 50);
+    setTimeout(() => dom.optionsButtonsContainer?.querySelector('.option-button')?.focus(), FOCUS_DELAY);
 }
 
 /** 問題表示前のUIリセット */
@@ -2856,7 +2860,7 @@ function handleAnswerSubmission(selectedOption, correctAnswer) {
     const isCorrect = selectedOption === correctAnswer;
     const questionData = appState.studyList[appState.currentQuestionIndex];
     // Ensure critical elements exist before proceeding
-    if (!questionData || !dom.studyCard || !dom.feedbackContainer || !dom.feedbackMessage || !dom.feedbackIcon || !dom.optionsButtonsContainer) {
+    if (!questionData || !dom.studyCard || !dom.feedbackContainer || !dom.feedbackMessage || !dom.feedbackIcon || !dom.optionsButtonsContainer || !dom.answerArea) {
         console.error("Feedback error: Required DOM elements or question data missing.");
         showNotification("フィードバック表示中にエラーが発生しました。", "error");
         return;
@@ -2899,23 +2903,24 @@ function handleAnswerSubmission(selectedOption, correctAnswer) {
     safeSetStyle(dom.answerArea, 'display', 'block');
     safeSetStyle(dom.evaluationControls, 'display', 'flex'); // Use flex for layout
 
-    // --- UX Improvement: Scroll evaluation controls into view ---
+    // --- UX Improvement: Scroll answer area into view ---
     // Slightly delay scrollIntoView to allow rendering and animation
     setTimeout(() => {
-        if (dom.evaluationControls && dom.evaluationControls.offsetParent !== null) { // Check if visible
-            dom.evaluationControls.scrollIntoView({
+        if (dom.answerArea && dom.answerArea.offsetParent !== null) { // Check if visible
+            dom.answerArea.scrollIntoView({
                 behavior: 'smooth',
-                block: 'nearest' // 'nearest' minimizes scroll distance
+                block: 'start' // Align top of answer area with top of viewport
             });
             // Focus the first evaluation button after scrolling
-            setTimeout(() => dom.evaluationControls.querySelector('.eval-button')?.focus(), 150); // Slightly longer delay for focus after scroll
+            setTimeout(() => dom.evaluationControls?.querySelector('.eval-button')?.focus(), FOCUS_DELAY + 200); // Longer delay for focus after scroll
         } else {
-            // Fallback focus if eval controls not found (shouldn't happen)
-             dom.answerArea?.focus(); // Focus answer area as fallback
+            // Fallback focus if answer area not found (shouldn't happen)
+             dom.evaluationControls?.querySelector('.eval-button')?.focus();
         }
-    }, 50); // Short delay before starting scroll
+    }, SCROLL_DELAY); // Short delay before starting scroll
     // --- End UX Improvement ---
 }
+
 
 /** 理解度評価ボタンクリックハンドラ */
 function handleEvaluation(event) {
@@ -3006,8 +3011,13 @@ function recordQuestionHistory(deckId, questionId, isCorrect, evaluation) {
 function moveToNextQuestion() {
     appState.currentQuestionIndex++;
      if (appState.currentQuestionIndex < appState.studyList.length) {
-         // If there are more questions, display the next one
-         displayCurrentQuestion();
+         // --- UX Improvement: Scroll to top before displaying next question ---
+         window.scrollTo({ top: 0, behavior: 'smooth' });
+         // Use setTimeout to display question after scroll starts/finishes
+         setTimeout(() => {
+             displayCurrentQuestion();
+         }, 100); // Delay slightly to allow scroll to start
+         // --- End UX Improvement ---
      } else {
          // If no more questions, show the completion screen
          showStudyCompletion();
@@ -4762,5 +4772,5 @@ if (!Element.prototype.closest) {
 
 
 // ====================================================================
-// End of file: script.js V3.0 (UX Improvement Added)
+// End of file: script.js V3.0 (Scroll UX Improved)
 // ====================================================================
