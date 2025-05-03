@@ -1098,6 +1098,7 @@ function navigateToScreen(screenId, isInitialLoad = false) {
      }, FOCUS_DELAY); // Use constant for delay
 
     // Scroll to top after navigation (except initial load or study screen)
+    // Study screen scrolling is handled in moveToNextQuestion
     if (!isInitialLoad && screenId !== 'study-screen') {
          window.scrollTo(SCROLL_TOP_OPTIONS);
     }
@@ -3009,22 +3010,14 @@ function recordQuestionHistory(deckId, questionId, isCorrect, evaluation) {
 function moveToNextQuestion() {
     appState.currentQuestionIndex++;
      if (appState.currentQuestionIndex < appState.studyList.length) {
-        // --- UX Improvement: Scroll to top before displaying next question ---
-        // Use scrollIntoView on the study card for better mobile compatibility
-        if (dom.studyCard) {
-            dom.studyCard.scrollIntoView(SCROLL_OPTIONS); // Scroll the study card into view
-        } else {
-             // Fallback to window scroll if studyCard element is not found
-             window.scrollTo(SCROLL_TOP_OPTIONS);
-        }
+         // --- UX Improvement: Scroll to top before displaying next question ---
+         window.scrollTo(SCROLL_TOP_OPTIONS); // Execute scroll immediately
 
-        // Use requestAnimationFrame for smoother transition (optional but recommended)
-        requestAnimationFrame(() => {
-            // Display the question after the scroll has likely started
-            // No need for additional setTimeout here usually
-            displayCurrentQuestion(); // This function handles focusing the first option
-        });
-        // --- End UX Improvement ---
+         // Use setTimeout for reliable execution after scroll attempt
+         setTimeout(() => {
+             displayCurrentQuestion(); // This function handles focusing the first option
+         }, SCROLL_DELAY); // Use a small delay after scroll command
+         // --- End UX Improvement ---
      } else {
          // If no more questions, show the completion screen
          showStudyCompletion();
