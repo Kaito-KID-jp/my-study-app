@@ -13,14 +13,14 @@
 <body class="theme-light"> <!-- Default theme class -->
 
     <!-- === Loading Overlay === -->
-    <div id="app-loading-overlay" class="loading-overlay active no-print">
+    <div id="app-loading-overlay" class="loading-overlay active no-print" role="alert" aria-live="assertive" aria-hidden="false">
         <div class="spinner"></div>
         <p>読み込み中...</p>
     </div>
 
     <!-- === Application Header === -->
     <header class="app-header no-print">
-        <h1 class="app-title" tabindex="0" role="button" aria-label="ホームへ戻る"><i class="fas fa-graduation-cap"></i> AI問題生成学習アプリ</h1>
+        <h1 id="app-header-title" class="app-title" tabindex="0" role="button" aria-label="ホームへ戻る"><i class="fas fa-graduation-cap"></i> AI問題生成学習アプリ</h1>
         <div class="header-actions">
              <button id="theme-toggle-button" type="button" class="button small secondary theme-toggle-button" aria-label="テーマ切り替え" title="ライト/ダークモード切替">
                  <i class="fas fa-moon theme-icon-dark"></i>
@@ -29,17 +29,17 @@
             </button>
              <!-- Quit Study button moved to header for Study Screen -->
             <button type="button" id="quit-study-header-button" class="button danger small icon-button no-print" style="display: none;" aria-label="学習を中断">
-                <i class="fas fa-times"></i>
+                <i class="fas fa-times" aria-hidden="true"></i><span class="sr-only">学習を中断</span>
             </button>
         </div>
     </header>
 
     <!-- === Bottom Navigation (Mobile) === -->
-     <nav class="app-nav no-print" aria-label="メインナビゲーション">
-        <button type="button" class="nav-button active" data-target="home-screen" aria-current="page"><i class="fas fa-home"></i><span class="nav-text">ホーム</span></button>
-        <button type="button" class="nav-button" data-target="dashboard-screen"><i class="fas fa-chart-line"></i><span class="nav-text">ダッシュボード</span></button>
-        <button type="button" class="nav-button" data-target="settings-screen"><i class="fas fa-cog"></i><span class="nav-text">設定</span></button>
-        <button type="button" class="nav-button" data-target="prompt-guide-screen"><i class="fas fa-lightbulb"></i><span class="nav-text">AIガイド</span></button>
+     <nav id="app-nav" class="app-nav no-print" aria-label="メインナビゲーション">
+        <button type="button" class="nav-button active" data-target="home-screen" aria-current="page"><i class="fas fa-home" aria-hidden="true"></i><span class="nav-text">ホーム</span></button>
+        <button type="button" class="nav-button" data-target="dashboard-screen"><i class="fas fa-chart-line" aria-hidden="true"></i><span class="nav-text">ダッシュボード</span></button>
+        <button type="button" class="nav-button" data-target="settings-screen"><i class="fas fa-cog" aria-hidden="true"></i><span class="nav-text">設定</span></button>
+        <button type="button" class="nav-button" data-target="prompt-guide-screen"><i class="fas fa-lightbulb" aria-hidden="true"></i><span class="nav-text">AIガイド</span></button>
     </nav>
 
     <!-- === Main Application Container === -->
@@ -50,16 +50,16 @@
         <!-- ================================================== -->
         <!-- Home Screen Area                                     -->
         <!-- ================================================== -->
-        <section id="home-screen" class="screen active" aria-labelledby="home-screen-title">
+        <section id="home-screen" class="screen active" aria-labelledby="home-screen-title" tabindex="-1">
             <h2 id="home-screen-title" class="sr-only">ホーム画面</h2>
             <!-- Deck Management Card -->
             <section id="deck-management-section" class="card" aria-labelledby="deck-management-title">
-                <h2 id="deck-management-title" class="card-header"><i class="fas fa-layer-group"></i> 問題集管理</h2>
+                <h2 id="deck-management-title" class="card-header"><i class="fas fa-layer-group" aria-hidden="true"></i> 問題集管理</h2>
                 <div class="card-content">
                     <!-- Deck Controls: Load new deck -->
                     <div class="deck-controls no-print">
-                        <label for="json-file-input" class="button primary file-label"><i class="fas fa-upload"></i> 新規問題集(JSON)を読み込む</label>
-                        <input type="file" id="json-file-input" accept=".json" aria-describedby="load-status" style="display: none;">
+                        <label for="json-file-input" class="button primary file-label"><i class="fas fa-upload" aria-hidden="true"></i> 新規問題集(JSON)を読み込む</label>
+                        <input type="file" id="json-file-input" accept=".json,application/json" aria-describedby="load-status" style="display: none;">
                         <span id="load-status" class="status-message" aria-live="polite"></span>
                     </div>
                      <!-- Deck List Search & Sort -->
@@ -82,7 +82,7 @@
                     <!-- Available Decks List -->
                     <div id="deck-list-container" role="region" aria-labelledby="deck-list-title">
                         <h3 id="deck-list-title" class="sr-only">利用可能な問題集</h3>
-                        <ul id="deck-list" aria-live="polite">
+                        <ul id="deck-list" aria-live="polite" tabindex="-1"> <!-- tabindex for focusing the list -->
                             <li class="no-decks-message">問題集がありません。<br>「新規問題集(JSON)を読み込む」からファイルを追加してください。</li>
                         </ul>
                          <nav id="deck-list-pagination" class="pagination-controls no-print" aria-label="問題集リストページネーション" style="display: none;"></nav>
@@ -90,19 +90,19 @@
                     <!-- Current Deck Information -->
                     <div id="current-deck-info" role="region" aria-labelledby="current-deck-title">
                         <div class="current-deck-header">
-                            <h3 id="current-deck-title"><i class="fas fa-book-open"></i> 現在の問題集</h3>
-                             <button type="button" id="reset-history-button" class="button small danger icon-button no-print" title="選択中の問題集の学習履歴をリセットします (確認あり)" disabled>
-                                <i class="fas fa-history"></i> 履歴リセット
+                            <h3 id="current-deck-title"><i class="fas fa-book-open" aria-hidden="true"></i> 現在の問題集</h3>
+                             <button type="button" id="reset-history-button" class="button small danger icon-button no-print" title="選択中の問題集の学習履歴をリセットします (確認あり)" disabled aria-disabled="true">
+                                <i class="fas fa-history" aria-hidden="true"></i> 履歴リセット
                             </button>
                          </div>
                         <p>名称: <strong id="current-deck-name">未選択</strong></p>
-                        <p>総問題数: <strong id="total-questions">0</strong></p>
+                        <p>総問題数: <strong id="total-questions">0</strong>問</p>
                         <p>最終学習: <strong id="current-deck-last-studied">-</strong></p>
                         <p>累計正答率: <strong id="current-deck-accuracy">-</strong></p>
                     </div>
                     <!-- Study Filter Options -->
                     <div id="study-filter-options" class="no-print" style="display: none;" role="region" aria-labelledby="study-filter-title">
-                        <h4 id="study-filter-title" class="filter-header"><i class="fas fa-filter"></i> 出題範囲フィルター</h4>
+                        <h4 id="study-filter-title" class="filter-header"><i class="fas fa-filter" aria-hidden="true"></i> 出題範囲フィルター</h4>
                         <fieldset class="filter-group">
                             <legend class="sr-only">出題範囲を選択してください</legend>
                             <div class="filter-item">
@@ -111,7 +111,7 @@
                             </div>
                             <div class="filter-item">
                                 <input type="radio" name="study-filter" id="filter-low" value="lowAccuracy">
-                                <label for="filter-low"><i class="fas fa-thumbs-down" aria-hidden="true"></i><span class="filter-text"> 苦手 (≤ <span class="threshold-value" id="low-accuracy-threshold-display-filter">50</span>%)</span><span class="filter-count">(0)</span></label>
+                                <label for="filter-low"><i class="fas fa-thumbs-down" aria-hidden="true"></i><span class="filter-text"> 苦手 (正答率 ≤ <span class="threshold-value" id="low-accuracy-threshold-display-filter">50</span>%)</span><span class="filter-count">(0)</span></label>
                             </div>
                              <div class="filter-item">
                                 <input type="radio" name="study-filter" id="filter-incorrect" value="incorrect">
@@ -138,7 +138,7 @@
                     </div>
                     <!-- Start Study Button -->
                     <div class="start-buttons">
-                        <button type="button" id="start-study-button" class="button success large no-print" disabled><i class="fas fa-play-circle"></i> 学習開始</button>
+                        <button type="button" id="start-study-button" class="button success large no-print" disabled aria-disabled="true"><i class="fas fa-play-circle" aria-hidden="true"></i> 学習開始</button>
                     </div>
                 </div>
             </section>
@@ -147,14 +147,14 @@
         <!-- ================================================== -->
         <!-- Study Screen Area                                    -->
         <!-- ================================================== -->
-        <section id="study-screen" class="screen" aria-labelledby="study-screen-title">
-             <div id="study-progress-container" class="study-progress-container no-print">
+        <section id="study-screen" class="screen" aria-labelledby="study-screen-title" tabindex="-1">
+             <div id="study-progress-container" class="study-progress-container no-print" style="visibility: hidden;">
                  <span id="study-progress-text" aria-live="polite"></span>
                  <progress id="study-progress-bar" max="100" value="0"></progress>
              </div>
              <h2 id="study-screen-title" class="screen-title">学習中: <span></span></h2>
              <!-- Study Card -->
-             <div id="study-card" class="card study-card-active">
+             <div id="study-card" class="card study-card-active" style="display: none;">
                 <!-- Question Area -->
                 <div id="question-area">
                      <p class="card-label question-label">問題 <span id="question-counter" aria-live="polite"></span></p>
@@ -166,36 +166,36 @@
                      <div id="options-buttons-container" class="card-content options-grid" role="group" aria-label="解答選択肢"></div>
                  </div>
                 <!-- Answer/Explanation Area (Initially Hidden) -->
-                 <div id="answer-area" class="card-content" style="display: none;" aria-live="polite">
+                 <div id="answer-area" class="card-content" style="display: none;" aria-live="polite" role="region" aria-label="解答と解説">
                      <hr>
                      <div id="feedback-container" class="feedback-container">
-                         <p id="feedback-message" class="feedback-message"><i id="feedback-icon" class="feedback-icon fas"></i> <span></span></p> <!-- Add ID for icon -->
+                         <p id="feedback-message" class="feedback-message"><i id="feedback-icon" class="feedback-icon fas" aria-hidden="true"></i> <span></span></p>
                      </div>
                      <p class="card-label">正解</p>
                      <div id="answer-text"></div>
                      <p class="card-label">解説</p>
                      <div id="explanation-text"></div>
                      <!-- Retry Button moved inside answer area -->
-                    <button type="button" id="retry-button" class="button secondary small no-print" style="display: none; margin-top: 15px;"><i class="fas fa-redo-alt"></i> もう一度挑戦</button>
+                    <button type="button" id="retry-button" class="button secondary small no-print" style="display: none; margin-top: 15px;"><i class="fas fa-redo-alt" aria-hidden="true"></i> もう一度挑戦</button>
                 </div>
              </div>
              <!-- Study Completion Message (Initially Hidden) -->
-             <div id="study-complete-message" style="display: none;" class="completion-panel card" aria-live="assertive" tabindex="-1"> <!-- tabindex for focus -->
-                <h3 class="card-header"><i class="fas fa-party-popper"></i> 学習完了！</h3>
+             <div id="study-complete-message" style="display: none;" class="completion-panel card" aria-live="assertive" tabindex="-1" role="alert"> <!-- tabindex for focus, role=alert -->
+                <h3 class="card-header"><i class="fas fa-party-popper" aria-hidden="true"></i> 学習完了！</h3>
                  <div class="card-content">
                      <p>今回の学習セッションは完了です！お疲れ様でした。</p>
-                     <p>今回の正解数: <strong id="session-correct-count">0</strong></p>
-                     <p>今回の不正解数: <strong id="session-incorrect-count">0</strong></p>
+                     <p>今回の正解数: <strong id="session-correct-count">0</strong>問</p>
+                     <p>今回の不正解数: <strong id="session-incorrect-count">0</strong>問</p>
                      <button type="button" id="back-to-home-button" class="button primary large no-print">ホームに戻る</button>
                  </div>
             </div>
              <!-- Evaluation Controls (Fixed bottom panel) -->
-             <div id="evaluation-controls" style="display: none;" class="evaluation-panel no-print">
+             <div id="evaluation-controls" style="display: none;" class="evaluation-panel no-print" role="region" aria-label="問題の理解度評価">
                 <p class="eval-instruction">この問題の理解度は？</p>
-                 <div class="eval-buttons-container" role="group" aria-label="問題の理解度評価">
-                     <button type="button" class="eval-button button secondary difficult" data-level-change="difficult" title="理解が不十分で、近いうちに再学習したい"><i class="fas fa-redo"></i><span class="eval-text">難しい</span></button>
-                     <button type="button" class="eval-button button secondary normal" data-level-change="normal" title="理解できたが、忘れないように復習したい"><i class="fas fa-check"></i><span class="eval-text">普通</span></button>
-                     <button type="button" class="eval-button button secondary easy" data-level-change="easy" title="完全に理解しており、しばらく復習不要"><i class="fas fa-check-double"></i><span class="eval-text">簡単</span></button>
+                 <div class="eval-buttons-container" role="group" aria-label="理解度選択">
+                     <button type="button" class="eval-button button secondary difficult" data-level-change="difficult" title="理解が不十分で、近いうちに再学習したい"><i class="fas fa-redo" aria-hidden="true"></i><span class="eval-text">難しい</span></button>
+                     <button type="button" class="eval-button button secondary normal" data-level-change="normal" title="理解できたが、忘れないように復習したい"><i class="fas fa-check" aria-hidden="true"></i><span class="eval-text">普通</span></button>
+                     <button type="button" class="eval-button button secondary easy" data-level-change="easy" title="完全に理解しており、しばらく復習不要"><i class="fas fa-check-double" aria-hidden="true"></i><span class="eval-text">簡単</span></button>
                  </div>
             </div>
         </section>
@@ -203,20 +203,22 @@
         <!-- ================================================== -->
         <!-- Dashboard Screen Area                                -->
         <!-- ================================================== -->
-        <section id="dashboard-screen" class="screen" aria-labelledby="dashboard-screen-title">
-            <h2 id="dashboard-screen-title" class="screen-title"><i class="fas fa-tachometer-alt"></i> 学習ダッシュボード</h2>
+        <section id="dashboard-screen" class="screen" aria-labelledby="dashboard-screen-title" tabindex="-1">
+            <h2 id="dashboard-screen-title" class="screen-title"><i class="fas fa-tachometer-alt" aria-hidden="true"></i> 学習ダッシュボード</h2>
             <!-- Dashboard Controls: Deck Selection -->
             <div class="dashboard-controls card">
                  <label for="dashboard-deck-select">表示する問題集:</label>
                  <select id="dashboard-deck-select" aria-label="表示する問題集を選択">
                      <option value="">-- 問題集を選択してください --</option>
+                     <!-- Options populated by JS -->
                  </select>
+                 <p class="note" style="margin-left: auto;">(ダッシュボード機能は現在開発中です)</p>
             </div>
             <!-- Dashboard Content Area -->
-            <div id="dashboard-content" style="display: none;">
+            <div id="dashboard-content" style="display: none;"> <!-- Initially hidden -->
                 <!-- Overview Section -->
                 <section id="dashboard-overview" class="card" aria-labelledby="dashboard-overview-title">
-                    <h3 id="dashboard-overview-title" class="card-header"><i class="fas fa-info-circle"></i> 概要: <span id="dashboard-deck-name"></span></h3>
+                    <h3 id="dashboard-overview-title" class="card-header"><i class="fas fa-info-circle" aria-hidden="true"></i> 概要: <span id="dashboard-deck-name"></span></h3>
                     <div class="dashboard-stats-grid">
                         <div>総問題数: <strong id="dashboard-total-questions">0</strong></div>
                         <div>総解答数: <strong id="dashboard-total-answered">0</strong></div>
@@ -226,7 +228,7 @@
                 </section>
                 <!-- Study Trends Section -->
                 <section id="dashboard-trends" class="card" aria-labelledby="dashboard-trends-title">
-                    <h3 id="dashboard-trends-title" class="card-header"><i class="fas fa-chart-line"></i> 学習推移 (直近<span id="dashboard-trends-sessions-count">30</span>セッション)</h3>
+                    <h3 id="dashboard-trends-title" class="card-header"><i class="fas fa-chart-line" aria-hidden="true"></i> 学習推移 (直近<span id="dashboard-trends-sessions-count">30</span>セッション)</h3>
                     <div id="study-trends-chart-container" class="chart-container">
                          <canvas id="study-trends-chart" role="img" aria-label="学習セッションごとの積み上げ正解/不正解数と正答率の推移グラフ"></canvas>
                          <p id="study-trends-no-data" class="status-message chart-no-data" style="display: none;">学習セッション履歴がありません。</p>
@@ -235,13 +237,13 @@
                 </section>
                 <!-- Question Analysis Section -->
                 <section id="dashboard-question-analysis" class="card" aria-labelledby="dashboard-analysis-title">
-                    <h3 id="dashboard-analysis-title" class="card-header"><i class="fas fa-tasks"></i> 問題別分析</h3>
+                    <h3 id="dashboard-analysis-title" class="card-header"><i class="fas fa-tasks" aria-hidden="true"></i> 問題別分析</h3>
                      <!-- Analysis Controls Toggler (Mobile) -->
                       <button type="button" id="dashboard-controls-toggle" class="button secondary small dashboard-controls-toggle no-print" aria-expanded="false" aria-controls="dashboard-analysis-controls-panel">
-                        <i class="fas fa-filter"></i> フィルター・設定 <i class="fas fa-chevron-down"></i>
+                        <i class="fas fa-filter" aria-hidden="true"></i> フィルター・設定 <i class="fas fa-chevron-down" aria-hidden="true"></i>
                      </button>
                     <!-- Analysis Controls Panel (Collapsible on mobile) -->
-                     <div class="dashboard-analysis-controls collapsed" id="dashboard-analysis-controls-panel"> <!-- ID変更 -->
+                     <div class="dashboard-analysis-controls collapsed" id="dashboard-analysis-controls-panel" role="region" aria-label="分析フィルターと設定">
                         <div class="control-group">
                             <label for="dashboard-filter-accuracy">正答率:</label>
                             <select id="dashboard-filter-accuracy" aria-label="正答率で問題を絞り込む">
@@ -255,8 +257,8 @@
                         <div class="control-group search-control">
                             <label for="dashboard-search-query">検索:</label>
                             <input type="search" id="dashboard-search-query" placeholder="問題文, 解答, 解説..." aria-label="問題文や解答、解説で検索">
-                            <button type="button" id="dashboard-search-button" class="button small primary icon-button" aria-label="検索実行" disabled><i class="fas fa-search"></i></button>
-                            <button type="button" id="dashboard-search-clear" class="button small secondary icon-button" title="検索クリア" aria-label="検索をクリア"><i class="fas fa-times"></i></button>
+                            <button type="button" id="dashboard-search-button" class="button small primary icon-button" aria-label="検索実行" title="検索実行" disabled><i class="fas fa-search" aria-hidden="true"></i></button>
+                            <button type="button" id="dashboard-search-clear" class="button small secondary icon-button" title="検索クリア" aria-label="検索をクリア"><i class="fas fa-times" aria-hidden="true"></i></button>
                         </div>
                         <div class="control-group">
                             <label for="dashboard-sort-order">並び替え:</label>
@@ -270,8 +272,8 @@
                         </div>
                          <div class="control-group view-mode-control" role="group" aria-label="表示モード切り替え">
                             <label id="view-mode-label" class="sr-only">表示モード:</label>
-                            <button type="button" id="view-mode-list" class="button small secondary active" title="リスト表示" aria-pressed="true" aria-labelledby="view-mode-label"><i class="fas fa-list"></i> リスト</button>
-                            <button type="button" id="view-mode-chart" class="button small secondary" title="グラフ表示" aria-pressed="false" aria-labelledby="view-mode-label"><i class="fas fa-chart-bar"></i> グラフ</button>
+                            <button type="button" id="view-mode-list" class="button small secondary active" title="リスト表示" aria-pressed="true" aria-labelledby="view-mode-label"><i class="fas fa-list" aria-hidden="true"></i> リスト</button>
+                            <button type="button" id="view-mode-chart" class="button small secondary" title="グラフ表示" aria-pressed="false" aria-labelledby="view-mode-label"><i class="fas fa-chart-bar" aria-hidden="true"></i> グラフ</button>
                          </div>
                          <div class="control-group items-per-page-control">
                              <label for="dashboard-items-per-page">表示件数:</label>
@@ -289,7 +291,7 @@
                         <div id="question-list-view" class="analysis-view active" role="region" aria-labelledby="dashboard-analysis-title">
                             <ul id="question-accuracy-list" aria-live="polite" tabindex="-1"> <!-- Add tabindex for focusing -->
                                 <!-- Content dynamically added by JS -->
-                                <li class="status-message">問題集を選択し、フィルターを設定してください。</li>
+                                <li class="status-message info-message">リスト表示は未実装です。</li>
                             </ul>
                             <nav id="question-pagination" class="pagination-controls no-print" aria-label="問題リストページネーション"></nav>
                         </div>
@@ -302,24 +304,24 @@
                             </div>
                         </div>
                     </div>
-                     <!-- Question Detail View is now rendered inside a modal -->
+                     <!-- Question Detail View is rendered inside a modal -->
                 </section>
             </div>
              <!-- Message when no deck is selected -->
              <p id="dashboard-no-deck-message" class="status-message info-message" style="display: none; text-align: center; margin-top: 30px;">
-                <i class="fas fa-info-circle"></i> 表示する問題集を上で選択してください。
+                <i class="fas fa-info-circle" aria-hidden="true"></i> 表示する問題集を上で選択してください。
             </p>
         </section>
 
         <!-- ================================================== -->
         <!-- Settings Screen Area                                 -->
         <!-- ================================================== -->
-        <section id="settings-screen" class="screen" aria-labelledby="settings-screen-title">
-            <h2 id="settings-screen-title" class="screen-title"><i class="fas fa-cog"></i> アプリ設定</h2>
+        <section id="settings-screen" class="screen" aria-labelledby="settings-screen-title" tabindex="-1">
+            <h2 id="settings-screen-title" class="screen-title"><i class="fas fa-cog" aria-hidden="true"></i> アプリ設定</h2>
             <div id="settings-container" class="settings-container card">
                  <!-- Learning Settings Group -->
                  <fieldset class="settings-group">
-                     <legend class="settings-header"><i class="fas fa-sliders-h"></i> 学習設定</legend>
+                     <legend class="settings-header"><i class="fas fa-sliders-h" aria-hidden="true"></i> 学習設定</legend>
                      <div class="setting-item checkbox-item">
                          <input type="checkbox" id="setting-shuffle-options" class="setting-checkbox">
                          <label for="setting-shuffle-options" class="checkbox-label">学習時に選択肢をシャッフルする</label>
@@ -328,10 +330,9 @@
                          <label for="setting-low-accuracy-threshold">「苦手な問題」フィルターの閾値 (%)</label>
                          <div>
                              <input type="number" id="setting-low-accuracy-threshold" class="setting-input" min="1" max="99" step="1" aria-describedby="threshold-note">
-                             <span class="note" id="threshold-note">(この値以下の正答率の問題を抽出)</span>
+                             <span class="note" id="threshold-note">(この値以下の正答率の問題をフィルターで抽出)</span>
                          </div>
                      </div>
-                     <!-- V3.0 Added items per page settings -->
                       <div class="setting-item">
                          <label for="setting-home-items-per-page">ホーム画面 表示件数</label>
                           <div>
@@ -340,7 +341,7 @@
                                  <option value="20">20件</option>
                                  <option value="50">50件</option>
                               </select>
-                              <span class="note" id="home-items-note">(ホーム画面の問題集リストの1ページあたりの表示件数)</span>
+                              <span class="note" id="home-items-note">(ホームの問題集リストの1ページあたりの表示数)</span>
                          </div>
                      </div>
                      <div class="setting-item">
@@ -352,13 +353,13 @@
                                  <option value="50">50件</option>
                                  <option value="100">100件</option>
                              </select>
-                              <span class="note" id="dash-items-note">(ダッシュボード問題リストの1ページあたりの表示件数)</span>
+                              <span class="note" id="dash-items-note">(ダッシュボード問題リストの1ページあたりの表示数)</span>
                           </div>
                      </div>
                  </fieldset>
                   <!-- Appearance Settings Group -->
                   <fieldset class="settings-group">
-                     <legend class="settings-header"><i class="fas fa-paint-brush"></i> 表示設定</legend>
+                     <legend class="settings-header"><i class="fas fa-paint-brush" aria-hidden="true"></i> 表示設定</legend>
                      <div class="setting-item">
                          <label for="setting-theme">アプリのテーマ</label>
                          <div>
@@ -372,29 +373,29 @@
                  </fieldset>
                  <!-- Data Management Group -->
                   <fieldset class="settings-group">
-                     <legend class="settings-header"><i class="fas fa-database"></i> データ管理</legend>
+                     <legend class="settings-header"><i class="fas fa-database" aria-hidden="true"></i> データ管理</legend>
                      <div class="setting-item button-item">
                           <label for="export-data-button">全データのエクスポート</label>
-                         <button type="button" id="export-data-button" class="button secondary"><i class="fas fa-file-export"></i> エクスポート</button>
+                         <button type="button" id="export-data-button" class="button secondary"><i class="fas fa-file-export" aria-hidden="true"></i> エクスポート</button>
                           <span class="note">(全問題集と設定をJSONファイルに保存)</span>
                      </div>
                      <div class="setting-item button-item">
                          <label for="import-data-input">データのインポート</label>
-                          <label for="import-data-input" class="button secondary file-label"><i class="fas fa-file-import"></i> ファイル選択</label>
-                         <input type="file" id="import-data-input" accept=".json" style="display: none;" aria-describedby="import-status">
+                          <label for="import-data-input" class="button secondary file-label"><i class="fas fa-file-import" aria-hidden="true"></i> ファイル選択</label>
+                         <input type="file" id="import-data-input" accept=".json,application/json" style="display: none;" aria-describedby="import-status">
                          <span class="note">(エクスポートしたJSONファイルを読み込み。既存データに追加・上書きするか選択)</span>
                          <span id="import-status" class="status-message setting-status" aria-live="polite"></span>
                      </div>
                       <hr>
                      <div class="setting-item button-item danger-zone">
                          <label for="reset-all-data-button">全データの消去</label>
-                         <button type="button" id="reset-all-data-button" class="button danger"><i class="fas fa-exclamation-triangle"></i> 全データ削除</button>
-                         <span class="note">(<strong>警告:</strong> 問題集、設定、学習履歴すべてが削除されます。この操作は元に戻せません！)</span>
+                         <button type="button" id="reset-all-data-button" class="button danger"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> 全データ削除</button>
+                         <span class="note">(<strong>警告:</strong> 全ての問題集、設定、学習履歴が完全に削除されます。この操作は元に戻せません！)</span>
                      </div>
                  </fieldset>
                  <!-- Save Settings Actions -->
                  <div class="settings-actions no-print">
-                    <button type="button" id="save-settings-button" class="button success"><i class="fas fa-save"></i> 設定を保存</button>
+                    <button type="button" id="save-settings-button" class="button success" disabled aria-disabled="true"><i class="fas fa-save" aria-hidden="true"></i> 設定を保存</button>
                     <div id="settings-save-status" class="status-message" aria-live="polite"></div>
                 </div>
             </div>
@@ -403,8 +404,8 @@
         <!-- ================================================== -->
         <!-- Prompt Guide Screen Area                             -->
         <!-- ================================================== -->
-        <section id="prompt-guide-screen" class="screen" aria-labelledby="prompt-guide-title">
-           <h2 id="prompt-guide-title" class="screen-title"><i class="fas fa-lightbulb"></i> AI問題生成ガイド</h2>
+        <section id="prompt-guide-screen" class="screen" aria-labelledby="prompt-guide-title" tabindex="-1">
+           <h2 id="prompt-guide-title" class="screen-title"><i class="fas fa-lightbulb" aria-hidden="true"></i> AI問題生成ガイド</h2>
             <div class="card">
                 <h3 class="card-header">AIを使った問題JSON生成</h3>
                 <div class="card-content">
@@ -427,7 +428,7 @@
                     </fieldset>
                     <!-- Copy Prompt Controls -->
                     <div class="prompt-controls">
-                         <button type="button" id="copy-prompt-button" class="button primary"> <i class="fas fa-copy"></i> カスタマイズしたプロンプトをコピー </button>
+                         <button type="button" id="copy-prompt-button" class="button primary"> <i class="fas fa-copy" aria-hidden="true"></i> カスタマイズしたプロンプトをコピー </button>
                         <span id="copy-status" class="status-message" aria-live="polite"></span>
                     </div>
                     <h4>プロンプトテンプレート:</h4>
@@ -464,8 +465,8 @@
                          <h4 class="settings-header">生成されたJSONの簡易チェック</h4>
                          <p>AIが生成したJSONテキストを以下に貼り付けて、基本的な形式が正しいか確認できます。</p>
                          <label for="json-check-input" class="sr-only">JSONチェック入力エリア</label>
-                         <textarea id="json-check-input" rows="6" placeholder="ここにAIが生成したJSONを貼り付け..."></textarea>
-                         <button type="button" id="json-check-button" class="button secondary"><i class="fas fa-check-circle"></i> 形式チェック</button>
+                         <textarea id="json-check-input" rows="6" placeholder="ここにAIが生成したJSONを貼り付け..." aria-describedby="json-check-status"></textarea>
+                         <button type="button" id="json-check-button" class="button secondary"><i class="fas fa-check-circle" aria-hidden="true"></i> 形式チェック</button>
                          <span id="json-check-status" class="status-message" aria-live="polite"></span>
                      </div>
                      <!-- Usage Guide -->
@@ -497,17 +498,17 @@
          <!-- ================================================== -->
         <!-- Modal Dialog Area                                 -->
         <!-- ================================================== -->
-         <div id="modal-overlay" class="modal-overlay no-print" style="display: none;">
+         <div id="modal-overlay" class="modal-overlay no-print" style="display: none;" aria-hidden="true">
              <div id="modal-dialog" class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1"> <!-- Add tabindex for focus -->
                 <header class="modal-header">
                     <h2 id="modal-title" class="modal-title-text">Modal Title</h2>
                     <button type="button" id="modal-close-button" class="modal-close-button close-button" aria-label="閉じる">×</button>
                 </header>
                  <div id="modal-body" class="modal-body">
-                    <!-- Content will be inserted here -->
+                    <!-- Content will be inserted here by JS -->
                 </div>
                 <footer id="modal-footer" class="modal-footer">
-                     <!-- Buttons will be inserted here -->
+                     <!-- Buttons will be inserted here by JS -->
                  </footer>
              </div>
          </div>
@@ -520,9 +521,8 @@
     </footer>
 
     <!-- === External Libraries === -->
-    <!-- Chart.js Library -->
+    <!-- Chart.js Library (Needed for Dashboard, keep even if features limited) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha256-0q+JdOlScWOHcunpUk21uab1jW7C1deBQARHtKMcaB4=" crossorigin="anonymous"></script>
-    <!-- Chart.js Date Adapter IS NOT NEEDED if using Intl.DateTimeFormat -->
     <!-- Your Application Script -->
     <script src="script.js"></script>
 </body>
