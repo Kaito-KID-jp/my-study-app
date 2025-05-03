@@ -1,4 +1,10 @@
 // ====================================================================
+// AI問題生成学習アプリ - アプリケーションロジック V3.0
+// ====================================================================
+
+"use strict";
+
+// ====================================================================
 // アプリケーション状態 (State)
 // ====================================================================
 const appState = {
@@ -3004,11 +3010,13 @@ function moveToNextQuestion() {
     appState.currentQuestionIndex++;
      if (appState.currentQuestionIndex < appState.studyList.length) {
          // --- UX Improvement: Scroll to top before displaying next question ---
-         window.scrollTo(SCROLL_TOP_OPTIONS); // Use constant
-         // Use setTimeout to display question after scroll starts/finishes
+         window.scrollTo(SCROLL_TOP_OPTIONS); // Execute scroll immediately
+
+         // Use setTimeout to display question slightly after scroll starts
+         // Ensure display happens *after* the scroll has likely initiated
          setTimeout(() => {
-             displayCurrentQuestion();
-         }, SCROLL_DELAY + 50); // Delay slightly more than scroll delay
+             displayCurrentQuestion(); // This function handles focusing the first option
+         }, SCROLL_DELAY + 50); // Adjusted delay slightly more than scroll delay
          // --- End UX Improvement ---
      } else {
          // If no more questions, show the completion screen
@@ -4764,5 +4772,5 @@ if (!Element.prototype.closest) {
 
 
 // ====================================================================
-// End of file: script.js V3.0 (Scroll UX Improved)
+// End of file: script.js V3.0 (Scroll UX Improved v2)
 // ====================================================================
