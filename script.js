@@ -3010,7 +3010,13 @@ function moveToNextQuestion() {
     appState.currentQuestionIndex++;
      if (appState.currentQuestionIndex < appState.studyList.length) {
         // --- UX Improvement: Scroll to top before displaying next question ---
-        window.scrollTo(SCROLL_TOP_OPTIONS); // Execute scroll immediately
+        // Use scrollIntoView on the study card for better mobile compatibility
+        if (dom.studyCard) {
+            dom.studyCard.scrollIntoView(SCROLL_OPTIONS); // Scroll the study card into view
+        } else {
+             // Fallback to window scroll if studyCard element is not found
+             window.scrollTo(SCROLL_TOP_OPTIONS);
+        }
 
         // Use requestAnimationFrame for smoother transition (optional but recommended)
         requestAnimationFrame(() => {
