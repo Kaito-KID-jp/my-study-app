@@ -1,9 +1,10 @@
 // ====================================================================
-// AI問題生成学習アプリ - アプリケーションロジック V3.0 (改修版)
+// AI問題生成学習アプリ - アプリケーションロジック V3.0 (再改修版)
 // ====================================================================
 
 "use strict";
 
+// ... (既存のState, 型定義, 定数, DOMキャッシュ等は変更なし) ...
 // ====================================================================
 // アプリケーション状態 (State)
 // ====================================================================
@@ -152,14 +153,14 @@ const DATE_FORMAT_OPTIONS = { // Intl.DateTimeFormat オプション
 };
 const PAGINATION_BUTTON_COUNT = 5; // ページネーション表示ボタン数 (Current ± (COUNT-1)/2 )
 const SCROLL_OPTIONS = { behavior: 'smooth', block: 'start' };
-const SCROLL_TOP_OPTIONS = { top: 0, behavior: 'smooth' }; // 修正1: スマホでのスクロール挙動改善のため、behaviorを明示
+const SCROLL_TOP_OPTIONS = { top: 0, behavior: 'smooth' };
 const FOCUS_DELAY = 150;
-const SCROLL_DELAY = 100; // 修正1: スクロール開始までの遅延を少し増やす
+const SCROLL_DELAY = 100;
 
 // ====================================================================
 // DOM要素参照 & グローバル変数
 // ====================================================================
-const dom = {}; // DOM要素をキャッシュするオブジェクト
+const dom = {};
 let searchDebounceTimer = null;
 let filterCountDebounceTimer = null;
 let resizeDebounceTimer = null;
@@ -234,27 +235,20 @@ function cacheDOMElements() {
     let allFound = true;
     let criticalFound = true;
     const ids = [
-        // Critical / General
         'app-container', 'app-loading-overlay', 'global-notification', 'notification-message',
         'notification-icon', 'notification-close-button', 'app-init-error', 'theme-toggle-button', 'app-nav',
-        'app-header-title',
-        // Screens
-        'home-screen', 'study-screen', 'dashboard-screen', 'settings-screen', 'prompt-guide-screen',
-        // Modal
+        'app-header-title', 'home-screen', 'study-screen', 'dashboard-screen', 'settings-screen', 'prompt-guide-screen',
         'modal-overlay', 'modal-dialog', 'modal-title', 'modal-body', 'modal-footer', 'modal-close-button',
-        // Home Screen
         'json-file-input', 'load-status', 'deck-list-controls', 'deck-search-input', 'deck-sort-select',
         'deck-list', 'deck-list-pagination', 'current-deck-info', 'current-deck-name', 'total-questions',
         'current-deck-last-studied', 'current-deck-accuracy', 'reset-history-button', 'start-study-button',
         'study-filter-options', 'filtered-question-count-display', 'low-accuracy-threshold-display-filter',
-        'study-filter-select', // 修正5: ホーム画面フィルターのselect要素
-        // Study Screen
+        'study-filter-select',
         'study-progress-container', 'study-progress-bar', 'study-progress-text', 'study-screen-title',
         'study-card', 'question-counter', 'question-text', 'options-buttons-container', 'answer-area',
         'feedback-container', 'feedback-message', 'feedback-icon', 'answer-text', 'explanation-text', 'retry-button',
         'evaluation-controls', 'study-complete-message', 'session-correct-count', 'session-incorrect-count',
         'back-to-home-button', 'quit-study-header-button',
-        // Dashboard Screen
         'dashboard-deck-select', 'dashboard-content', 'dashboard-no-deck-message',
         'dashboard-controls-toggle', 'dashboard-analysis-controls-panel',
         'dashboard-overview', 'dashboard-deck-name', 'dashboard-total-questions', 'dashboard-total-answered',
@@ -269,13 +263,11 @@ function cacheDOMElements() {
         'question-analysis-view', 'question-list-view', 'question-chart-view',
         'question-accuracy-list', 'question-pagination', 'question-accuracy-chart-container',
         'question-accuracy-chart', 'question-accuracy-no-data',
-        // Settings Screen
         'settings-container', 'setting-shuffle-options', 'setting-low-accuracy-threshold',
         'setting-home-items-per-page', 'setting-dashboard-items-per-page',
         'setting-theme', 'export-data-button', 'import-data-input', 'import-status', 'reset-all-data-button',
         'save-settings-button', 'settings-save-status',
-        'plain-json-input', 'generate-json-file-button', 'generate-json-status', // 修正2: JSONテキストからのファイル生成機能
-        // Prompt Guide Screen
+        'plain-json-input', 'generate-json-file-button', 'generate-json-status',
         'prompt-field-topic', 'prompt-field-count', 'prompt-field-level', 'copy-prompt-button', 'copy-status',
         'prompt-text-template', 'json-check-area', 'json-check-input', 'json-check-button', 'json-check-status',
     ];
@@ -294,13 +286,11 @@ function cacheDOMElements() {
     dom.navButtons = document.querySelectorAll('.nav-button');
     dom.screens = document.querySelectorAll('.screen');
     dom.evalButtons = document.querySelectorAll('.eval-button');
-    // 修正5: studyFilterRadios は不要になったので削除 (代わりに studyFilterSelect を使用)
     dom.appBody = document.body;
 
     if (dom.navButtons.length === 0) { console.warn("No navigation buttons found."); criticalFound = false; }
     if (dom.screens.length === 0) { console.warn("No screen elements found."); criticalFound = false; }
     if (dom.evalButtons.length === 0) console.warn("No evaluation buttons found.");
-    // 修正5: studyFilterRadios のチェックは不要
 
     console.log(`DOM caching: ${allFound ? 'All listed' : 'Some listed'} elements found. Critical elements ${criticalFound ? 'found' : 'MISSING'}.`);
     return criticalFound;
@@ -337,6 +327,7 @@ function logInitStep(message) {
     console.log(`%cINIT: ${message}`, 'color: #3498db; font-weight: bold;');
 }
 
+// ... (データ永続化、UI制御関数(テーマ、通知、モーダル)は変更なし) ...
 // ====================================================================
 // データ永続化 (LocalStorage Persistence)
 // ====================================================================
@@ -638,8 +629,7 @@ function navigateToScreen(screenId, isInitialLoad = false) {
     }
 
     if (!isInitialLoad && screenId === appState.activeScreen) {
-        // 修正1: スマホでのスクロール挙動改善のため、画面遷移時も明示的にトップへスクロール
-        // ただし、学習画面は専用のスクロールロジックがあるので除外
+        // 修正1: 学習画面以外でのスクロールはここで行う
         if (screenId !== 'study-screen') {
             window.scrollTo(SCROLL_TOP_OPTIONS);
         }
@@ -684,7 +674,7 @@ function navigateToScreen(screenId, isInitialLoad = false) {
              if (!appState.isStudyActive && !isInitialLoad) {
                 navigateToScreen('home-screen'); return;
              }
-             // 修正1: 学習画面開始時もトップへスクロール
+             // 修正1: 学習画面開始時のスクロールはここで行う (重複を避けるため、以降のSCROLL_TOP_OPTIONS呼び出しは条件分岐)
              window.scrollTo(SCROLL_TOP_OPTIONS);
             break;
     }
@@ -704,13 +694,14 @@ function navigateToScreen(screenId, isInitialLoad = false) {
          }
      }, FOCUS_DELAY);
 
-    // 修正1: 学習画面以外で、初期ロードでない場合にトップへスクロール
+    // 修正1: 学習画面以外の画面遷移で、かつ初期ロードではない場合にトップへスクロール
     if (!isInitialLoad && screenId !== 'study-screen') {
          window.scrollTo(SCROLL_TOP_OPTIONS);
     }
 }
 
 
+// ... (グローバルイベントリスナー、テーマ関連処理、ナビゲーションは変更なし) ...
 // ====================================================================
 // イベントリスナー設定 (Event Listener Setup)
 // ====================================================================
@@ -735,7 +726,6 @@ function setupScreenEventListeners() {
     safeAddEventListener(dom.deckListPagination, 'click', handleDeckPaginationClick);
     safeAddEventListener(dom.resetHistoryButton, 'click', handleResetHistoryClick);
     safeAddEventListener(dom.startStudyButton, 'click', startStudy);
-    // 修正5: studyFilterRadios から studyFilterSelect に変更
     safeAddEventListener(dom.studyFilterSelect, 'change', handleStudyFilterChange);
 
 
@@ -773,7 +763,6 @@ function setupScreenEventListeners() {
     safeAddEventListener(dom.exportDataButton, 'click', exportAllData);
     safeAddEventListener(dom.importDataInput, 'change', handleImportFileSelect);
     safeAddEventListener(dom.resetAllDataButton, 'click', handleResetAllDataClick);
-    // 修正2: JSONテキストからファイル生成機能のイベントリスナー
     safeAddEventListener(dom.generateJsonFileButton, 'click', handleGenerateJsonFile);
 
 
@@ -857,6 +846,7 @@ function handleNavClick(event) {
     }
 }
 
+// ... (ファイル操作は変更なし) ...
 // ====================================================================
 // ファイル操作 (JSON Deck Handling, Import/Export)
 // ====================================================================
@@ -1166,7 +1156,7 @@ function deleteAllDataConfirmed() {
      const errorMsg = document.getElementById('delete-confirm-error');
      if (!confirmInput || !errorMsg) return;
      if (confirmInput.value.trim() !== "DELETE ALL DATA") {
-         errorMsg.textContent = "入力が一致しません。「DELETE ALL DATA」と正確に入力してください。";
+         errorMsg.textContent = "入力された文字列が一致しません。「DELETE ALL DATA」と正確に入力してください。";
          errorMsg.style.display = 'block'; confirmInput.focus(); confirmInput.select(); return;
      }
      closeModal();
@@ -1190,7 +1180,6 @@ function deleteAllDataConfirmed() {
     }
 }
 
-// 修正2: JSONテキストからファイル生成機能のハンドラ
 function handleGenerateJsonFile() {
     const jsonString = dom.plainJsonInput?.value;
     const statusElement = dom.generateJsonStatus;
@@ -1202,8 +1191,7 @@ function handleGenerateJsonFile() {
     }
 
     try {
-        // JSON形式をパースして検証（deck形式である必要はない、有効なJSONかどうかが主）
-        JSON.parse(jsonString); // これが失敗したらcatchへ
+        JSON.parse(jsonString); // Validate JSON format
 
         const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -1224,7 +1212,6 @@ function handleGenerateJsonFile() {
     } catch (error) {
         console.error("Error generating JSON file from text:", error);
         updateStatusMessage(statusElement, `JSON形式エラー: ${error.message}`, 'error');
-        // エラーメッセージは自動で消さない
         showNotification(`JSONファイル生成エラー: ${error.message}`, 'error');
     }
 }
@@ -1365,7 +1352,8 @@ function updateTopScreenDisplay() {
     const { accuracyText } = calculateOverallAccuracy(currentDeck);
     safeSetText(dom.currentDeckAccuracy, accuracyText);
     safeSetStyle(dom.studyFilterOptions, 'display', deckSelected ? 'block' : 'none');
-    safeSetText(dom.lowAccuracyThresholdDisplayFilter, appState.settings.lowAccuracyThreshold);
+    // 修正5: ドロップダウン内の閾値表示はoptionのテキスト更新で行うため、ここでは削除
+    // safeSetText(dom.lowAccuracyThresholdDisplayFilter, appState.settings.lowAccuracyThreshold);
     updateHomeActionButtonsState(currentDeck);
     clearTimeout(filterCountDebounceTimer);
     filterCountDebounceTimer = setTimeout(() => { if(appState.activeScreen === 'home-screen') updateAllFilterCounts(); }, MIN_DEBOUNCE_DELAY);
@@ -1386,14 +1374,18 @@ function updateHomeActionButtonsState(currentDeck) {
 
 function updateAllFilterCounts() {
      const deck = appState.allDecks[appState.currentDeckId];
-     // 修正5: studyFilterRadios を studyFilterSelect に変更
      const filterSelect = dom.studyFilterSelect;
 
      if (!deck || !filterSelect) {
-        if (filterSelect) { // フィルターオプションカウントをリセット
+        if (filterSelect) {
             Array.from(filterSelect.options).forEach(option => {
-                const text = option.textContent.replace(/\s*\(\d+\)$/, ''); // カウント部分を削除
-                option.textContent = `${text} (0)`;
+                const baseText = option.dataset.baseText || option.textContent.replace(/\s*\(\d+\)\s*$/, '').replace(/\s*\[.*?\]%?\)\s*$/, '');
+                option.dataset.baseText = baseText; // Store base text if not already stored
+                let displayText = baseText;
+                if (option.value === 'lowAccuracy') {
+                    displayText = `苦手 (正答率 ≤ ${appState.settings.lowAccuracyThreshold}%)`;
+                }
+                option.textContent = `${displayText} (0)`;
             });
         }
         safeSetText(dom.filteredQuestionCountDisplay, "対象問題数: 0問");
@@ -1407,17 +1399,19 @@ function updateAllFilterCounts() {
             const filterValue = option.value;
             const list = getFilteredStudyList(filterValue);
             const count = list?.length || 0;
-            const baseText = option.textContent.replace(/\s*\(\d+\)$/, '').replace(/\s*\[.*?\]%?\)$/, ''); // 既存カウントと閾値表示を削除
-            
+
+            const baseText = option.dataset.baseText || option.textContent.replace(/\s*\(\d+\)\s*$/, '').replace(/\s*\[.*?\]%?\)\s*$/, '');
+            option.dataset.baseText = baseText; // Store base text if not already stored
+
             let displayText = baseText;
             if (filterValue === 'lowAccuracy') {
                  displayText = `苦手 (正答率 ≤ ${appState.settings.lowAccuracyThreshold}%)`;
             }
             option.textContent = `${displayText} (${count})`;
 
-            if(filterSelect.value === filterValue) { // 現在選択されているフィルター
+            if(filterSelect.value === filterValue) {
                 totalSelectedFiltered = count;
-                appState.studyFilter = filterValue; // 状態を同期
+                // appState.studyFilter は handleStudyFilterChange で更新される
             }
         });
     } catch (error) {
@@ -1438,8 +1432,8 @@ function updateStudyButtonsState(filteredCount) {
     if (!appState.currentDeckId) {
          dom.startStudyButton.title = "学習を開始する問題集を選択してください。";
      } else if (!canStart) {
-         const selectedOptionText = dom.studyFilterSelect?.options[dom.studyFilterSelect.selectedIndex]?.textContent.replace(/\s*\(\d+\)$/, '') || '選択した条件';
-         dom.startStudyButton.title = `「${escapeHtml(selectedOptionText)}」に該当する問題がありません。`;
+         const selectedOptionText = dom.studyFilterSelect?.options[dom.studyFilterSelect.selectedIndex]?.dataset.baseText || '選択した条件';
+         dom.startStudyButton.title = `「${escapeHtml(selectedOptionText.trim())}」に該当する問題がありません。`;
      } else {
          dom.startStudyButton.title = `選択中のフィルター条件 (${filteredCount}問) で学習を開始します`;
      }
@@ -1487,8 +1481,8 @@ function selectDeck(deckId) {
     appState.currentDashboardDeckId = deckId;
     saveData(LS_KEYS.CURRENT_DECK_ID, deckId);
     showNotification(`問題集「${escapeHtml(appState.allDecks[deckId].name)}」を選択しました。`, 'success', 2500);
-    appState.studyFilter = 'all'; // 修正5: デッキ選択時にフィルターをリセット
-    if(dom.studyFilterSelect) dom.studyFilterSelect.value = 'all'; // UIもリセット
+    appState.studyFilter = 'all';
+    if(dom.studyFilterSelect) dom.studyFilterSelect.value = 'all';
     updateHomeUI(true);
     safeSetValue(dom.dashboardDeckSelect, deckId);
     if (appState.activeScreen === 'dashboard-screen') {
@@ -1575,10 +1569,8 @@ function resetHistoryConfirmed(deckId) {
      }
 }
 
-// 修正5: handleStudyFilterChange を <select> 要素に対応
 function handleStudyFilterChange(event) {
-     const newFilter = event.target.value;
-     appState.studyFilter = newFilter;
+     appState.studyFilter = event.target.value;
      console.log("Study filter changed to:", appState.studyFilter);
      clearTimeout(filterCountDebounceTimer);
      filterCountDebounceTimer = setTimeout(updateAllFilterCounts, MIN_DEBOUNCE_DELAY);
@@ -1613,12 +1605,12 @@ function startStudy() {
     if (!deck) { showNotification('問題集を選択してください。', 'warning'); return; }
     const filteredList = getFilteredStudyList();
     if (filteredList.length === 0) {
-         const selectedOptionText = dom.studyFilterSelect?.options[dom.studyFilterSelect.selectedIndex]?.textContent.replace(/\s*\(\d+\)$/, '') || '選択した条件';
-        showNotification(`「${escapeHtml(selectedOptionText)}」に該当する問題がありません。`, 'warning'); return;
+         const selectedOptionText = dom.studyFilterSelect?.options[dom.studyFilterSelect.selectedIndex]?.dataset.baseText || '選択した条件';
+        showNotification(`「${escapeHtml(selectedOptionText.trim())}」に該当する問題がありません。`, 'warning'); return;
     }
     appState.studyList = shuffleArray([...filteredList]);
     appState.currentQuestionIndex = 0;
-    appState.studyStats = { currentSessionCorrect: 0, currentSessionIncorrect: 0 };
+    appState.studyStats = { currentSessionCorrect: 0, currentSessionIncorrect: 0 }; // 統計をリセット
     appState.isStudyActive = true;
     if (dom.studyScreenTitle) {
         const titleSpan = dom.studyScreenTitle.querySelector('span');
@@ -1631,7 +1623,7 @@ function startStudy() {
     safeSetStyle(dom.answerArea, 'display', 'none');
     safeSetStyle(dom.evaluationControls, 'display', 'none');
     safeSetStyle(dom.retryButton, 'display', 'none');
-    navigateToScreen('study-screen'); // navigateToScreen内でスクロールとフォーカスを処理
+    navigateToScreen('study-screen');
     displayCurrentQuestion();
     updateStudyProgress();
 }
@@ -1653,7 +1645,7 @@ function displayCurrentQuestion() {
     safeSetText(dom.answerText, questionData.correctAnswer);
     safeSetText(dom.explanationText, questionData.explanation || '解説はありません。');
     updateStudyProgress();
-    // 修正1: フォーカスはnavigateToScreenまたはmoveToNextQuestionで行うため、ここでの個別フォーカスは削除
+    // 修正1: moveToNextQuestion でフォーカス処理を行う
 }
 
 function resetQuestionUI(){
@@ -1735,13 +1727,11 @@ function handleAnswerSubmission(selectedOption, correctAnswer) {
      });
     safeSetStyle(dom.answerArea, 'display', 'block');
     safeSetStyle(dom.evaluationControls, 'display', 'flex');
-    setTimeout(() => { // 修正1: スクロールロジック改善
+    setTimeout(() => {
         if (dom.answerArea?.offsetParent !== null) {
-            // スマートフォンでは、評価パネルが表示されると画面下部が隠れることがあるため、
-            // answerArea全体ではなく、評価パネルの直前（例えばexplanationText）にスクロールした方が良い場合もある。
-            // ここでは、より確実に表示されるよう、answerAreaの開始位置にスクロールする。
-            dom.answerArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); // block: 'nearest' で過度なスクロールを防ぐ
-            setTimeout(() => dom.evaluationControls?.querySelector('.eval-button')?.focus(), FOCUS_DELAY + SCROLL_DELAY + 50);
+            // 修正1: block: 'nearest' を使用し、スクロール後のフォーカス遅延も調整
+            dom.answerArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            setTimeout(() => dom.evaluationControls?.querySelector('.eval-button')?.focus(), FOCUS_DELAY + SCROLL_DELAY + 100); // 少し長めの遅延
         } else {
              dom.evaluationControls?.querySelector('.eval-button')?.focus();
         }
@@ -1784,36 +1774,48 @@ function recordQuestionHistory(deckId, questionId, isCorrect, evaluation) {
 
 function moveToNextQuestion() {
     appState.currentQuestionIndex++;
-     if (appState.currentQuestionIndex < appState.studyList.length) {
-         // 修正1: スクロールとフォーカスを改善
-         window.scrollTo({ top: 0, behavior: 'auto' }); // 即時スクロール
-         setTimeout(() => {
-             displayCurrentQuestion(); // この中でフォーカスが試みられる
-             // 学習画面の主要コンテンツ（例：質問文）にフォーカスを当てる
-             dom.questionText?.focus({ preventScroll: true }); // preventScrollで二重スクロールを防ぐ
-         }, SCROLL_DELAY + 50); // 表示更新とレンダリングのための適切な遅延
-     } else {
-         showStudyCompletion();
-     }
+    if (appState.currentQuestionIndex < appState.studyList.length) {
+        // 修正1: スクロールを即時に行い、フォーカスは次の問題表示後に行う
+        window.scrollTo({ top: 0, behavior: 'auto' }); // 即時スクロール
+        displayCurrentQuestion(); // 問題を表示
+        // 問題表示とレンダリング後にフォーカス
+        setTimeout(() => {
+            const firstOptionButton = dom.optionsButtonsContainer?.querySelector('.option-button:not([disabled])');
+            if (firstOptionButton) {
+                firstOptionButton.focus({ preventScroll: true });
+            } else {
+                dom.questionText?.focus({ preventScroll: true }); // fallback
+            }
+        }, FOCUS_DELAY + SCROLL_DELAY); // 遅延を調整
+    } else {
+        showStudyCompletion();
+    }
 }
 
 function showStudyCompletion() {
-     if (!dom.studyCompleteMessage || !appState.isStudyActive) return;
+    if (!dom.studyCompleteMessage || !appState.isStudyActive) return;
+
+    // 修正6: セッション統計は、isStudyActive を false にする前に取得・保持
+    const finalCorrect = appState.studyStats.currentSessionCorrect;
+    const finalIncorrect = appState.studyStats.currentSessionIncorrect;
+
+    console.log("Study session completed. Final Stats (before reset):", { correct: finalCorrect, incorrect: finalIncorrect });
+
     const studyWasActive = appState.isStudyActive;
     appState.isStudyActive = false;
-    if (studyWasActive) saveSessionHistory(); // studyStatsはこの中でリセットされる
+
+    if (studyWasActive) {
+        // saveSessionHistory は内部で appState.studyStats を使用して保存し、その後リセットする
+        saveSessionHistory(finalCorrect, finalIncorrect); // 保持した値を渡す
+    }
 
     safeSetStyle(dom.studyCard, 'display', 'none');
     safeSetStyle(dom.evaluationControls, 'display', 'none');
     safeSetStyle(dom.quitStudyHeaderButton, 'display', 'none');
     safeSetStyle(dom.studyProgressContainer, 'visibility', 'hidden');
 
-    // 修正6: studyStatsはsaveSessionHistoryでリセットされる前に値を取得
-    const finalCorrect = appState.studyStats.currentSessionCorrect;
-    const finalIncorrect = appState.studyStats.currentSessionIncorrect;
-
-    safeSetText(dom.sessionCorrectCount, finalCorrect); // 正しい値をセット
-    safeSetText(dom.sessionIncorrectCount, finalIncorrect); // 正しい値をセット
+    safeSetText(dom.sessionCorrectCount, finalCorrect);
+    safeSetText(dom.sessionIncorrectCount, finalIncorrect);
 
     safeSetStyle(dom.studyCompleteMessage, 'display', 'block');
     setActiveClass(dom.studyCompleteMessage, true);
@@ -1822,32 +1824,32 @@ function showStudyCompletion() {
 
     appState.studyList = [];
     appState.currentQuestionIndex = -1;
-    // studyStatsはsaveSessionHistoryでリセットされるのでここでは不要
+    // appState.studyStats は saveSessionHistory 内でリセットされる
+
     updateHomeUI(true);
 }
 
-function saveSessionHistory() {
+// 修正6: saveSessionHistory が引数で統計を受け取るように変更
+function saveSessionHistory(sessionCorrect, sessionIncorrect) {
     const deckId = appState.currentDeckId;
     const deck = appState.allDecks[deckId];
 
-    // 修正6: studyStatsをここで使用し、その後リセット
-    const { currentSessionCorrect: correct, currentSessionIncorrect: incorrect } = appState.studyStats;
-
     if (!deck) {
         console.error("Cannot save session history: Current deck not found.");
-        appState.studyStats = { currentSessionCorrect: 0, currentSessionIncorrect: 0 }; // ここでリセット
+        // セッション統計をリセット (引数で渡された値はUI表示用なので、グローバルな統計はここでリセット)
+        appState.studyStats = { currentSessionCorrect: 0, currentSessionIncorrect: 0 };
         return;
     }
 
-    if (correct > 0 || incorrect > 0) {
+    if (sessionCorrect > 0 || sessionIncorrect > 0) {
         if (!Array.isArray(deck.sessionHistory)) deck.sessionHistory = [];
-        deck.sessionHistory.push({ ts: Date.now(), correct: correct, incorrect: incorrect });
+        deck.sessionHistory.push({ ts: Date.now(), correct: sessionCorrect, incorrect: sessionIncorrect });
         deck.lastStudied = Date.now();
         if (!saveData(LS_KEYS.DECKS, appState.allDecks)) {
              deck.sessionHistory.pop();
              showNotification("今回の学習セッション履歴の保存に失敗しました。", "error");
          } else {
-             console.log(`Session history saved for deck ${deck.id}: C=${correct}, I=${incorrect}`);
+             console.log(`Session history saved for deck ${deck.id}: C=${sessionCorrect}, I=${sessionIncorrect}`);
          }
     } else {
         if (appState.currentDeckId) {
@@ -1857,15 +1859,26 @@ function saveSessionHistory() {
              }
         }
     }
-    // セッション統計をリセット
+    // グローバルなセッション統計をリセット
     appState.studyStats = { currentSessionCorrect: 0, currentSessionIncorrect: 0 };
 }
+
 
 function retryCurrentQuestion() {
     if (!appState.isStudyActive || appState.currentQuestionIndex < 0 || !dom.answerArea || !dom.optionsButtonsContainer) return;
     resetQuestionUI();
     displayCurrentQuestion();
     showNotification("もう一度挑戦してください。", "info", 2000);
+    // 修正1: 再挑戦時もスクロールとフォーカス
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    setTimeout(() => {
+        const firstOptionButton = dom.optionsButtonsContainer?.querySelector('.option-button:not([disabled])');
+        if (firstOptionButton) {
+            firstOptionButton.focus({ preventScroll: true });
+        } else {
+            dom.questionText?.focus({ preventScroll: true });
+        }
+    }, FOCUS_DELAY);
 }
 
 function confirmQuitStudy(showConfirmation = true, navigateTo = 'home-screen') {
@@ -1875,9 +1888,13 @@ function confirmQuitStudy(showConfirmation = true, navigateTo = 'home-screen') {
     }
     let quitConfirmed = !showConfirmation || confirm("学習セッションを中断しますか？\nここまでの解答履歴と今回のセッション統計は保存されます。");
     if (quitConfirmed) {
+        // 修正6: studyStatsの値を保持
+        const finalCorrect = appState.studyStats.currentSessionCorrect;
+        const finalIncorrect = appState.studyStats.currentSessionIncorrect;
+
         const studyWasActive = appState.isStudyActive;
         appState.isStudyActive = false;
-        if (studyWasActive) saveSessionHistory();
+        if (studyWasActive) saveSessionHistory(finalCorrect, finalIncorrect); // 保持した値を渡す
         resetStudyScreenUI();
         navigateToScreen(navigateTo);
         showNotification("学習を中断しました。", "info", 3000);
@@ -1906,6 +1923,8 @@ function resetStudyState() {
      resetStudyScreenUI();
 }
 
+
+// ... (ダッシュボード関連処理、設定画面関連処理(JSON生成以外)、AIプロンプトガイド関連処理、ヘルパー関数は変更なし) ...
 // ====================================================================
 // ダッシュボード関連処理 (Dashboard)
 // ====================================================================
@@ -2105,7 +2124,7 @@ function showDetailForListItem(questionId) {
     const question = deck?.questions.find(q => q.id === questionId);
     if (!question) { showNotification("問題詳細が見つかりません。", "error"); return; }
     const detailElement = createQuestionDetailElement(question);
-    showModal({ title: `問題詳細`, content: detailElement, buttons: [{ text: '閉じる', class: 'secondary', onClick: closeModal }], size: 'lg' });
+    showModal({ title: `問題詳細`, content: detailElement, buttons: [{text:'閉じる',class:'secondary',onClick:closeModal}], size: 'lg' });
 }
 function createQuestionDetailElement(questionData) {
     const div = document.createElement('div');
