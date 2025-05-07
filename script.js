@@ -1763,13 +1763,14 @@ function recordQuestionHistory(deckId, questionId, isCorrect, evaluation) {
 function moveToNextQuestion() {
     appState.currentQuestionIndex++;
     if (appState.currentQuestionIndex < appState.studyList.length) {
-        // 修正1: requestAnimationFrame を使用してスクロールと表示更新のタイミングを調整
-        window.scrollTo({ top: 0, behavior: 'auto' }); // まず即時スクロール
-
-        requestAnimationFrame(() => { // スクロール後の次のフレームで実行
+        requestAnimationFrame(() => { // DOM更新のスケジューリング
             displayCurrentQuestion(); // 問題を表示
 
-            requestAnimationFrame(() => { // さらに次のフレームでフォーカス (レンダリング後)
+            // 問題表示のDOM更新が適用された後にスクロールを実行
+            window.scrollTo({ top: 0, behavior: 'auto' });
+
+            // フォーカスはスクロール後、さらに次のフレームで実行（レンダリングを確実にするため）
+            requestAnimationFrame(() => {
                 const firstOptionButton = dom.optionsButtonsContainer?.querySelector('.option-button:not([disabled])');
                 if (firstOptionButton && firstOptionButton.offsetParent !== null) { // Ensure visible
                     firstOptionButton.focus({ preventScroll: true });
@@ -1858,21 +1859,26 @@ function saveSessionHistory(sessionCorrect, sessionIncorrect) {
 
 function retryCurrentQuestion() {
     if (!appState.isStudyActive || appState.currentQuestionIndex < 0 || !dom.answerArea || !dom.optionsButtonsContainer) return;
-    resetQuestionUI();
-    displayCurrentQuestion();
-    showNotification("もう一度挑戦してください。", "info", 2000);
-    // 修正1: スクロールとフォーカス
-     window.scrollTo({ top: 0, behavior: 'auto' });
-     requestAnimationFrame(() => {
-         requestAnimationFrame(() => {
-             const firstOptionButton = dom.optionsButtonsContainer?.querySelector('.option-button:not([disabled])');
-             if (firstOptionButton && firstOptionButton.offsetParent !== null) {
-                 firstOptionButton.focus({ preventScroll: true });
-             } else {
-                 dom.questionText?.focus({ preventScroll: true });
-             }
-         });
-     });
+    
+    requestAnimationFrame(() => {
+        resetQuestionUI();
+        displayCurrentQuestion(); // 問題を表示
+        
+        // DOM更新後にスクロール
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        
+        showNotification("もう一度挑戦してください。", "info", 2000); // 通知
+
+        // フォーカスはスクロール後、さらに次のフレームで実行
+        requestAnimationFrame(() => {
+            const firstOptionButton = dom.optionsButtonsContainer?.querySelector('.option-button:not([disabled])');
+            if (firstOptionButton && firstOptionButton.offsetParent !== null) {
+                firstOptionButton.focus({ preventScroll: true });
+            } else {
+                dom.questionText?.focus({ preventScroll: true });
+            }
+        });
+    });
 }
 
 function confirmQuitStudy(showConfirmation = true, navigateTo = 'home-screen') {
