@@ -40,7 +40,8 @@
      <nav id="app-nav" class="app-nav no-print" aria-label="メインナビゲーション">
         <button type="button" class="nav-button active" data-target="home-screen" aria-current="page"><i class="fas fa-home" aria-hidden="true"></i><span class="nav-text">ホーム</span></button>
         <button type="button" class="nav-button" data-target="dashboard-screen"><i class="fas fa-chart-line" aria-hidden="true"></i><span class="nav-text">分析</span></button>
-        <button type="button" class="nav-button" data-target="prompt-guide-screen"><i class="fas fa-magic-wand-sparkles" aria-hidden="true"></i><span class="nav-text">AIガイド</span></button>
+        <!-- 4. "AIガイド"ラベル変更 -->
+        <button type="button" class="nav-button" data-target="prompt-guide-screen"><i class="fas fa-magic-wand-sparkles" aria-hidden="true"></i><span class="nav-text">生成ガイド</span></button>
         <button type="button" class="nav-button" data-target="settings-screen"><i class="fas fa-cog" aria-hidden="true"></i><span class="nav-text">設定</span></button>
     </nav>
 
@@ -108,40 +109,21 @@
                         <p>累計正答率: <strong id="current-deck-accuracy">-</strong></p>
                     </div>
                 </div>
-                 <!-- Study Filter Options -->
+                 <!-- 5. Study Filter Options (Dropdownに変更) -->
                  <div id="study-filter-options" class="no-print study-filter-panel" style="display: none;" role="region" aria-labelledby="study-filter-title-visible">
                     <h4 id="study-filter-title-visible" class="filter-header"><i class="fas fa-filter" aria-hidden="true"></i> 出題範囲フィルター</h4>
-                    <fieldset class="filter-group">
-                        <legend class="sr-only">出題範囲を選択してください</legend>
-                        <div class="filter-item">
-                            <input type="radio" name="study-filter" id="filter-all" value="all" checked>
-                            <label for="filter-all" class="button filter-button"><i class="fas fa-list-ul" aria-hidden="true"></i><span class="filter-text"> 全問</span><span class="filter-count">(0)</span></label>
-                        </div>
-                        <div class="filter-item">
-                            <input type="radio" name="study-filter" id="filter-low" value="lowAccuracy">
-                            <label for="filter-low" class="button filter-button"><i class="fas fa-thumbs-down" aria-hidden="true"></i><span class="filter-text"> 苦手 (正答率 ≤ <span class="threshold-value" id="low-accuracy-threshold-display-filter">50</span>%)</span><span class="filter-count">(0)</span></label>
-                        </div>
-                         <div class="filter-item">
-                            <input type="radio" name="study-filter" id="filter-incorrect" value="incorrect">
-                            <label for="filter-incorrect" class="button filter-button"><i class="fas fa-times-circle" aria-hidden="true"></i><span class="filter-text"> 前回不正解</span><span class="filter-count">(0)</span></label>
-                        </div>
-                        <div class="filter-item">
-                            <input type="radio" name="study-filter" id="filter-unanswered" value="unanswered">
-                            <label for="filter-unanswered" class="button filter-button"><i class="fas fa-question-circle" aria-hidden="true"></i><span class="filter-text"> 未解答</span><span class="filter-count">(0)</span></label>
-                        </div>
-                        <div class="filter-item">
-                            <input type="radio" name="study-filter" id="filter-difficult" value="difficult">
-                            <label for="filter-difficult" class="button filter-button"><i class="fas fa-redo" aria-hidden="true"></i><span class="filter-text"> 要復習(難)</span><span class="filter-count">(0)</span></label>
-                        </div>
-                        <div class="filter-item">
-                            <input type="radio" name="study-filter" id="filter-normal" value="normal">
-                            <label for="filter-normal" class="button filter-button"><i class="fas fa-check" aria-hidden="true"></i><span class="filter-text"> 要復習(普)</span><span class="filter-count">(0)</span></label>
-                        </div>
-                        <div class="filter-item">
-                            <input type="radio" name="study-filter" id="filter-easy" value="easy">
-                            <label for="filter-easy" class="button filter-button"><i class="fas fa-check-double" aria-hidden="true"></i><span class="filter-text"> 要復習(易)</span><span class="filter-count">(0)</span></label>
-                        </div>
-                    </fieldset>
+                    <div class="control-group"> <!-- Added for layout consistency -->
+                        <label for="study-filter-select" class="sr-only">出題範囲を選択してください</label>
+                        <select id="study-filter-select" aria-label="出題範囲フィルター">
+                            <option value="all" data-icon-class="fas fa-list-ul">全問</option>
+                            <option value="lowAccuracy" data-icon-class="fas fa-thumbs-down">苦手 (正答率 ≤ <span id="low-accuracy-threshold-display-filter">50</span>%)</option>
+                            <option value="incorrect" data-icon-class="fas fa-times-circle">前回不正解</option>
+                            <option value="unanswered" data-icon-class="fas fa-question-circle">未解答</option>
+                            <option value="difficult" data-icon-class="fas fa-redo">要復習(難)</option>
+                            <option value="normal" data-icon-class="fas fa-check">要復習(普)</option>
+                            <option value="easy" data-icon-class="fas fa-check-double">要復習(易)</option>
+                        </select>
+                    </div>
                     <p id="filtered-question-count-display" class="note" aria-live="polite">総対象問題数: 0問</p>
                 </div>
                 <!-- Start Study Button -->
@@ -384,6 +366,16 @@
                          <span class="note">(エクスポートしたJSONファイルを読み込み)</span>
                          <span id="import-status" class="status-message setting-status" aria-live="polite"></span>
                      </div>
+                     <!-- 2. JSONテキストからファイル生成機能 -->
+                     <div class="setting-item">
+                        <label for="plain-json-input">JSONテキストからファイル生成</label>
+                        <div>
+                            <textarea id="plain-json-input" rows="5" placeholder="ここに問題集のJSONテキストを貼り付け..." aria-describedby="plain-json-note"></textarea>
+                            <button type="button" id="generate-json-file-button" class="button secondary small" style="margin-top: 5px;"><i class="fas fa-file-code" aria-hidden="true"></i> JSONファイルとしてダウンロード</button>
+                            <span class="note" id="plain-json-note">(テキストエリアの内容からJSONファイルを生成してダウンロードします)</span>
+                            <span id="generate-json-status" class="status-message setting-status" aria-live="polite"></span>
+                        </div>
+                     </div>
                       <div class="setting-item button-item danger-zone">
                          <label for="reset-all-data-button">全データの消去</label>
                          <button type="button" id="reset-all-data-button" class="button danger"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> 全データ削除</button>
@@ -400,12 +392,17 @@
         <!-- ================================================== -->
         <!-- Prompt Guide Screen Area                             -->
         <!-- ================================================== -->
+        <!-- 4. "AIガイド"ラベル変更 -->
         <section id="prompt-guide-screen" class="screen" aria-labelledby="prompt-guide-title" tabindex="-1">
-           <h2 id="prompt-guide-title" class="screen-title"><i class="fas fa-magic-wand-sparkles" aria-hidden="true"></i> AI問題生成ガイド</h2>
+           <h2 id="prompt-guide-title" class="screen-title"><i class="fas fa-magic-wand-sparkles" aria-hidden="true"></i> 問題生成ガイド</h2>
             <div class="card">
                 <h3 class="card-header"><i class="fas fa-robot" aria-hidden="true"></i> AIを使った問題JSON生成</h3>
                 <div class="card-content">
                     <p>ChatGPT (GPT-4推奨) などのAIを使用して、学習用の問題JSONファイルを簡単に生成できます。以下のプロンプト例を参考に、必要に応じてカスタマイズしてください。</p>
+                    <p>
+                        <!-- 3. Google AI Studioリンク追加 -->
+                        AIモデルは、<a href="https://aistudio.google.com/app/prompts/new_chat" target="_blank" rel="noopener noreferrer">Google AI Studio (Gemini)</a> や <a href="https://chat.openai.com/" target="_blank" rel="noopener noreferrer">ChatGPT</a> などが利用可能です。
+                    </p>
                     <fieldset class="prompt-customization-fields settings-group">
                         <legend class="settings-header">プロンプトのカスタマイズ</legend>
                         <div class="setting-item">
