@@ -1,25 +1,27 @@
 /* ==================================================================== */
-/* AI問題生成学習アプリ - スタイルシート V3.2 (指摘修正版)             */
+/* AI問題生成学習アプリ - スタイルシート V3.2.1 (指摘修正・機能移動対応) */
 /* ==================================================================== */
 
 /* --- Root Variables & Base Styles --- */
+/* ... (変更なし) ... */
 :root {
     /* ------------------------- */
     /*    Color Palette          */
     /* ------------------------- */
+    /* Base Hues (Adjust these for different color schemes) */
     --primary-hue: 210;
     --secondary-hue: 215;
-    --accent-hue: 45;
+    --accent-hue: 45; /* Yellowish for accent */
     --success-hue: 134;
     --warning-hue: 40;
     --danger-hue: 0;
     --info-hue: 188;
 
     /* Light Theme Colors */
-    --primary-color-light: hsl(var(--primary-hue), 79%, 60%);
+    --primary-color-light: hsl(var(--primary-hue), 79%, 60%); /* Brighter Blue */
     --primary-dark-light: hsl(var(--primary-hue), 70%, 50%);
-    --primary-light-light: hsl(var(--primary-hue), 90%, 95%);
-    --secondary-color-light: hsl(var(--secondary-hue), 20%, 50%);
+    --primary-light-light: hsl(var(--primary-hue), 90%, 95%); /* Very light blue for backgrounds */
+    --secondary-color-light: hsl(var(--secondary-hue), 20%, 50%); /* Muted Gray/Blue */
     --secondary-dark-light: hsl(var(--secondary-hue), 25%, 35%);
     --accent-color-light: hsl(var(--accent-hue), 100%, 50%);
     --success-color-light: hsl(var(--success-hue), 57%, 53%);
@@ -30,10 +32,10 @@
     --danger-dark-light: hsl(var(--danger-hue), 84%, 50%);
     --info-color-light: hsl(var(--info-hue), 75%, 45%);
     --white-color: #ffffff;
-    --black-color: #1a1a1a;
+    --black-color: #1a1a1a; /* Softer black */
 
     /* Backgrounds (Light) */
-    --bg-base-light: hsl(var(--secondary-hue), 30%, 97%);
+    --bg-base-light: hsl(var(--secondary-hue), 30%, 97%); /* Off-white, slightly cool */
     --bg-card-light: var(--white-color);
     --bg-card-secondary-light: hsl(var(--secondary-hue), 25%, 94%);
     --bg-input-light: var(--white-color);
@@ -42,8 +44,8 @@
     --bg-disabled-light: hsl(var(--secondary-hue), 20%, 90%);
 
     /* Text (Light) */
-    --text-dark-light: hsl(var(--secondary-hue), 30%, 15%);
-    --text-light-light: hsl(var(--secondary-hue), 20%, 45%);
+    --text-dark-light: hsl(var(--secondary-hue), 30%, 15%); /* Dark Gray/Blue */
+    --text-light-light: hsl(var(--secondary-hue), 20%, 45%); /* Medium Gray */
     --text-disabled-light: hsl(var(--secondary-hue), 15%, 65%);
     --text-on-primary-light: var(--white-color);
     --text-on-secondary-light: var(--white-color);
@@ -86,7 +88,7 @@
     --info-color-dark: hsl(var(--info-hue), 60%, 55%);
 
     /* Backgrounds (Dark) */
-    --bg-base-dark: hsl(var(--secondary-hue), 15%, 12%);
+    --bg-base-dark: hsl(var(--secondary-hue), 15%, 12%); /* Very Dark Gray/Blue */
     --bg-card-dark: hsl(var(--secondary-hue), 15%, 18%);
     --bg-card-secondary-dark: hsl(var(--secondary-hue), 15%, 22%);
     --bg-input-dark: hsl(var(--secondary-hue), 15%, 20%);
@@ -182,10 +184,10 @@
     /* ------------------------- */
     --font-family-sans: 'Inter', 'Noto Sans JP', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
     --font-family-code: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
-    --font-size-root: 16px;
-    --font-size-base: 1rem;
-    --font-size-sm: 0.875rem;
-    --font-size-lg: 1.125rem;
+    --font-size-root: 16px; /* Base for rem units */
+    --font-size-base: 1rem; /* 16px */
+    --font-size-sm: 0.875rem; /* 14px */
+    --font-size-lg: 1.125rem; /* 18px */
     --line-height-base: 1.65;
     --line-height-heading: 1.3;
     --font-weight-normal: 400;
@@ -197,18 +199,18 @@
     /*     Layout & Effects      */
     /* ------------------------- */
     --border-radius-sm: 4px;
-    --border-radius: 8px;
+    --border-radius: 8px; /* Slightly larger default */
     --border-radius-lg: 12px;
     --transition-duration: 0.25s;
-    --transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
-    --spacing-unit: 1rem;
-    --spacing-xxs: calc(var(--spacing-unit) * 0.25);
-    --spacing-xs: calc(var(--spacing-unit) * 0.5);
-    --spacing-sm: calc(var(--spacing-unit) * 0.75);
-    --spacing-md: var(--spacing-unit);
-    --spacing-lg: calc(var(--spacing-unit) * 1.5);
-    --spacing-xl: calc(var(--spacing-unit) * 2);
-    --spacing-xxl: calc(var(--spacing-unit) * 3);
+    --transition-timing: cubic-bezier(0.4, 0, 0.2, 1); /* Smoother easing */
+    --spacing-unit: 1rem; /* 16px */
+    --spacing-xxs: calc(var(--spacing-unit) * 0.25); /* 4px */
+    --spacing-xs: calc(var(--spacing-unit) * 0.5);   /* 8px */
+    --spacing-sm: calc(var(--spacing-unit) * 0.75);  /* 12px */
+    --spacing-md: var(--spacing-unit);               /* 16px */
+    --spacing-lg: calc(var(--spacing-unit) * 1.5);   /* 24px */
+    --spacing-xl: calc(var(--spacing-unit) * 2);     /* 32px */
+    --spacing-xxl: calc(var(--spacing-unit) * 3);    /* 48px */
 
     --box-shadow-xs: 0 1px 2px 0 var(--shadow-color);
     --box-shadow-sm: 0 2px 4px -1px var(--shadow-color);
@@ -219,7 +221,7 @@
 
     --max-content-width: 1280px;
     --header-height: 64px;
-    --bottom-nav-height: 60px;
+    --bottom-nav-height: 60px; /* Slightly smaller */
 
     /* Z-index Map */
     --z-index-tooltip: 1100;
@@ -227,8 +229,8 @@
     --z-index-modal-overlay: 1040;
     --z-index-notification: 1030;
     --z-index-loading-overlay: 2000;
-    --z-index-header: 1000;
-    --z-index-bottom-nav: 1000;
+    --z-index-header: 1000; /* Higher z-index for header */
+    --z-index-bottom-nav: 1000; /* Higher z-index for bottom nav */
     --z-index-study-eval-panel: 990;
     --z-index-dropdown: 101;
 }
@@ -972,7 +974,7 @@ legend {
      align-items: center;
      gap: var(--spacing-md);
 }
-#json-file-input { /* Keep this hidden as it's triggered by label */
+#json-file-input {
     display: none;
 }
 
@@ -1090,7 +1092,6 @@ legend {
     line-height: 1.6;
 }
 
-/* Current Deck & Study Options Panel */
 #current-deck-study-options {
     margin-top: var(--spacing-xl);
 }
@@ -1128,27 +1129,26 @@ legend {
 .study-filter-panel .filter-header {
     font-size: 1.1rem;
     color: var(--text-dark);
-    margin-bottom: var(--spacing-sm); /* Reduced margin for select */
+    margin-bottom: var(--spacing-sm);
     font-weight: var(--font-weight-semibold);
 }
 .study-filter-panel .filter-header i { margin-right: var(--spacing-sm); color: var(--primary-color); }
 
-/* Styles for the new select element for study filter */
-#study-filter-select {
-    width: 100%;
-    max-width: 400px; /* Or adjust as needed */
-    margin-bottom: var(--spacing-xs); /* Consistent with other inputs */
-}
-.study-filter-panel .control-group { /* Wrapper for select if needed, or direct style */
+.study-filter-panel .control-group { /* Wrapper for select */
     margin-bottom: var(--spacing-sm);
 }
-
+#study-filter-select {
+    width: 100%;
+    max-width: 400px;
+    margin-bottom: var(--spacing-xs);
+}
+/* Removed old .filter-item, .filter-button styles as they are no longer used */
 
 #filtered-question-count-display {
     text-align: right;
     font-size: var(--font-size-sm);
     color: var(--text-light);
-    margin-top: var(--spacing-xs);
+    margin-top: var(--spacing-md);
 }
 
 .start-buttons {
@@ -1156,6 +1156,7 @@ legend {
 }
 
 /* --- Study Screen --- */
+/* ... (学習画面のスタイルは変更なし) ... */
 #study-screen {
     padding-bottom: calc(var(--bottom-nav-height) + 90px);
 }
@@ -1333,7 +1334,6 @@ legend {
 }
 .retry-button-study { margin-top: var(--spacing-md); }
 
-/* Evaluation Controls Panel */
 .evaluation-panel {
     position: fixed;
     bottom: var(--bottom-nav-height);
@@ -1396,7 +1396,6 @@ legend {
     filter: brightness(108%);
 }
 
-/* Completion Panel */
 .completion-panel {
      text-align: center;
      animation: fadeInScale 0.4s var(--transition-timing) forwards;
@@ -1409,7 +1408,9 @@ legend {
 .completion-panel strong { font-weight: var(--font-weight-semibold); color: var(--primary-color); }
 .completion-panel .button { margin-top: var(--spacing-lg); }
 
+
 /* --- Dashboard Screen --- */
+/* ... (変更なし) ... */
 .dashboard-deck-selector {
     padding: var(--spacing-md) var(--spacing-lg);
     margin-bottom: var(--spacing-xl);
@@ -1699,13 +1700,15 @@ legend {
 }
 #settings-screen .setting-input,
 #settings-screen .setting-select,
-#settings-screen textarea { /* Added textarea for plain-json-input */
+#settings-screen textarea {
      width: 100%;
      max-width: 300px;
      margin-bottom: var(--spacing-xs);
 }
-#settings-screen textarea#plain-json-input { /* Specific styling for plain json textarea */
-    max-width: 100%; /* Allow it to be wider */
+/* JSON生成用テキストエリアのスタイル */
+#prompt-guide-screen textarea#plain-json-input, /* Prompt Guide Screen specific */
+#settings-screen textarea#plain-json-input { /* Settings Screen specific (if exists there) */
+    max-width: 100%;
     min-height: 150px;
     font-family: var(--font-family-code);
     font-size: 0.9rem;
@@ -1762,8 +1765,8 @@ legend {
      padding: var(--spacing-lg);
      background-color: var(--bg-card-secondary);
 }
-.prompt-customization-fields .settings-header { font-size: 1.1rem; }
-.prompt-customization-fields .setting-item {
+.prompt-customization-fields .settings-header { font-size: 1.1rem; } /* Match Settings screen headers */
+.prompt-customization-fields .setting-item { /* Reuse setting-item for layout */
     grid-template-columns: 180px 1fr;
     margin-bottom: var(--spacing-md);
 }
@@ -1814,11 +1817,37 @@ pre.code-block strong.prompt-placeholder {
     border: 1px solid var(--border-color);
     word-break: break-all;
 }
-.json-check-area { margin-top: var(--spacing-xl); }
-.json-check-area h4 { margin-bottom: var(--spacing-xs); font-size: 1.1rem; }
-.json-check-area textarea { font-family: var(--font-family-code); font-size: 0.9rem; min-height: 150px; max-height: 300px;}
-.json-check-area .button { margin-top: var(--spacing-sm); }
-#json-check-status { display: block; margin-top: var(--spacing-xs); }
+/* JSON Check and Generate Area in Prompt Guide */
+#prompt-guide-screen .json-check-area,
+#prompt-guide-screen .settings-group { /* Reusing settings-group for consistency if JSON generate is here */
+    margin-top: var(--spacing-xl);
+}
+#prompt-guide-screen .json-check-area h4,
+#prompt-guide-screen .settings-group .settings-header { /* Match header style */
+    font-size: 1.1rem;
+    color: var(--text-dark);
+    margin-bottom: var(--spacing-sm);
+    font-weight: var(--font-weight-semibold);
+    padding-bottom: var(--spacing-xs);
+    border-bottom: 1px solid var(--border-color);
+}
+#prompt-guide-screen .json-check-area textarea,
+#prompt-guide-screen .settings-group textarea#plain-json-input { /* Styles for textareas */
+    font-family: var(--font-family-code);
+    font-size: 0.9rem;
+    min-height: 150px;
+    max-height: 300px;
+    width: 100%; /* Ensure full width in its container */
+}
+#prompt-guide-screen .json-check-area .button,
+#prompt-guide-screen .settings-group .button {
+    margin-top: var(--spacing-sm);
+}
+#prompt-guide-screen #json-check-status,
+#prompt-guide-screen #generate-json-status {
+    display: block;
+    margin-top: var(--spacing-xs);
+}
 
 
 /* --- Global Notification --- */
@@ -1853,8 +1882,8 @@ pre.code-block strong.prompt-placeholder {
 #notification-icon { margin-right: var(--spacing-sm); font-size: 1.25rem; flex-shrink: 0; }
 #notification-message { flex-grow: 1; line-height: 1.4; font-size: 0.95rem; }
 #global-notification.success { background-color: var(--success-dark); color: var(--text-on-success); }
-#global-notification.info    { background-color: var(--info-color); color: var(--text-on-primary); } /* Primary is often white/light text */
-.theme-dark #global-notification.info { color: var(--black-color); } /* Ensure contrast for dark theme info */
+#global-notification.info    { background-color: var(--info-color); color: var(--text-on-primary); }
+.theme-dark #global-notification.info { color: var(--black-color); }
 #global-notification.warning { background-color: var(--warning-dark); color: var(--text-on-warning); }
 #global-notification.error   { background-color: var(--danger-dark); color: var(--text-on-danger); }
 
@@ -1912,6 +1941,7 @@ pre.code-block strong.prompt-placeholder {
 }
 
 /* --- Modal Dialog --- */
+/* ... (変更なし) ... */
 .modal-overlay {
     position: fixed;
     inset: 0;
@@ -2040,7 +2070,7 @@ pre.code-block strong.prompt-placeholder {
 
 
 /* --- Responsive Design Adjustments --- */
-
+/* ... (変更なし) ... */
 @media (max-width: 992px) { /* Large Tablets & Small Laptops */
     html { font-size: 15px; }
     #app-container { padding: var(--spacing-md); }
@@ -2049,13 +2079,15 @@ pre.code-block strong.prompt-placeholder {
     .card-header { padding: var(--spacing-sm) var(--spacing-md); margin-left: calc(-1 * var(--spacing-md)); margin-right: calc(-1 * var(--spacing-md)); }
 
     #dashboard-analysis-controls-panel { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-    .view-mode-control { grid-column: auto; }
+    .view-mode-control { grid-column: auto; } /* Allow natural flow */
 
     #settings-screen .setting-item { grid-template-columns: minmax(150px, 1fr) 2fr; }
+    #prompt-guide-screen .setting-item { grid-template-columns: minmax(150px, 1fr) 2fr; } /* Added for prompt guide consistency */
+
 }
 
 @media (max-width: 768px) { /* Small Tablets & Large Phones */
-    body { padding-top: calc(var(--header-height) - 8px); }
+    body { padding-top: calc(var(--header-height) - 8px); } /* Slightly less padding for smaller header */
     .app-header { height: calc(var(--header-height) - 8px); }
     .app-header .app-title { font-size: 1.1rem; }
     .app-nav .nav-text { display: none; }
@@ -2070,7 +2102,7 @@ pre.code-block strong.prompt-placeholder {
     #deck-list .deck-info { margin-bottom: var(--spacing-xs); width: 100%; }
     #deck-list .deck-actions { width: 100%; justify-content: flex-end; margin-top: var(--spacing-xs); }
     .current-deck-info-panel .current-deck-header { flex-direction: column; align-items: flex-start; }
-    /* Home study filter dropdown */
+    /* Home study filter dropdown mobile */
     .study-filter-panel .control-group { margin-bottom: var(--spacing-sm); }
     #study-filter-select { width: 100%; max-width: none; }
 
@@ -2088,7 +2120,7 @@ pre.code-block strong.prompt-placeholder {
     #dashboard-deck-select { width: 100%; min-width: 0; }
     .dashboard-controls-toggle { display: flex; }
     #dashboard-analysis-controls-panel {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr; /* Single column for filters */
         border-bottom: none;
         padding: var(--spacing-md) 0 0;
     }
@@ -2103,28 +2135,46 @@ pre.code-block strong.prompt-placeholder {
     #question-accuracy-list { max-height: 400px; }
     .pagination-controls .page-info { order: -1; flex-basis: 100%; margin-bottom: var(--spacing-sm); }
 
-    /* Settings Mobile */
-    #settings-screen .setting-item {
+    /* Settings & Prompt Guide Mobile */
+    #settings-screen .setting-item,
+    #prompt-guide-screen .prompt-customization-fields .setting-item,
+    #prompt-guide-screen .settings-group .setting-item { /* For JSON generate section in prompt guide */
         grid-template-columns: 1fr;
         gap: var(--spacing-xs);
     }
-    #settings-screen .setting-item > label:not(.checkbox-label) {
+    #settings-screen .setting-item > label:not(.checkbox-label),
+    #prompt-guide-screen .prompt-customization-fields .setting-item > label,
+    #prompt-guide-screen .settings-group .setting-item > label { /* For JSON generate section in prompt guide */
         text-align: left; padding-top: 0; padding-right: 0;
     }
     #settings-screen .setting-item .setting-input,
     #settings-screen .setting-item .setting-select,
-    #settings-screen .setting-item textarea { max-width: none; }
-    #settings-screen .setting-item.button-item {
+    #settings-screen .setting-item textarea,
+    #prompt-guide-screen .prompt-customization-fields input,
+    #prompt-guide-screen .settings-group textarea { /* For JSON generate section in prompt guide */
+        max-width: none;
+    }
+    #settings-screen .setting-item.button-item,
+    #prompt-guide-screen .settings-group .setting-item.button-item { /* For JSON generate button if it were styled this way */
         grid-template-columns: 1fr; text-align: left;
     }
     #settings-screen .setting-item.button-item .button,
     #settings-screen .setting-item.button-item .file-label,
     #settings-screen .setting-item.button-item .note,
-    #settings-screen .setting-item.button-item .setting-status {
+    #settings-screen .setting-item.button-item .setting-status,
+    #prompt-guide-screen .settings-group .setting-item .button, /* For JSON generate button */
+    #prompt-guide-screen .settings-group .setting-item .note,   /* For JSON generate note */
+    #prompt-guide-screen .settings-group .setting-item .status-message { /* For JSON generate status */
         grid-column: 1 / -1; justify-self: stretch; margin-left: 0;
     }
      #settings-screen .setting-item.button-item .note,
-     #settings-screen .setting-item.button-item .setting-status { margin-top: var(--spacing-xs); }
+     #settings-screen .setting-item.button-item .setting-status,
+     #prompt-guide-screen .settings-group .setting-item .note,
+     #prompt-guide-screen .settings-group .setting-item .status-message {
+         margin-top: var(--spacing-xs);
+    }
+    #settings-screen .setting-item.danger-zone { padding: var(--spacing-md); }
+
 }
 
 @media (max-width: 480px) { /* Phones */
@@ -2147,6 +2197,7 @@ pre.code-block strong.prompt-placeholder {
     #question-text { font-size: 1.15rem; }
     #feedback-message { font-size: 1.1rem; padding: var(--spacing-xs) var(--spacing-sm); }
     .eval-button { font-size: 0.9rem; min-width: auto; flex-basis: calc(33.33% - var(--spacing-sm) * 2/3); }
+    .eval-buttons-container { gap: var(--spacing-sm); }
 
     /* Dashboard Phone */
     .question-accuracy-item { padding: var(--spacing-sm); flex-direction: column; align-items: stretch; gap: var(--spacing-sm); }
@@ -2157,7 +2208,11 @@ pre.code-block strong.prompt-placeholder {
 
     /* Prompt Guide Phone */
      .prompt-customization-fields { padding: var(--spacing-md); }
-     .json-check-area textarea { min-height: 100px; }
+     #prompt-guide-screen .json-check-area textarea,
+     #prompt-guide-screen .settings-group textarea#plain-json-input {
+         min-height: 100px;
+    }
+
 
     /* Global Notification Phone */
     #global-notification {
