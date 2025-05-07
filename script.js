@@ -1892,7 +1892,7 @@ function deleteAllDataConfirmed() {
      if (!confirmInput || !errorMsg) return;
 
      if (confirmInput.value.trim() !== "DELETE ALL DATA") {
-         errorMsg.textContent = "入力が一致しません。「DELETE ALL DATA」と正確に入力してください。";
+         errorMsg.textContent = "入力された文字列が一致しません。「DELETE ALL DATA」と正確に入力してください。";
          errorMsg.style.display = 'block';
          confirmInput.focus();
          confirmInput.select(); // Select text for easy retyping
